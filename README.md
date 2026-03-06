@@ -54,8 +54,10 @@ src/
   ReplicatedStorage/Config/   -- Shared config (client + server)
   ServerScriptService/        -- Server scripts (state, inventory, tools)
   StarterPlayer/              -- Client scripts (HUD, inventory UI)
-assets/raw/                   -- Source textures, audio, documentation (not synced)
+docs/                         -- System documentation
+assets/raw/                   -- Source textures, audio (local only, not in repo)
 default.project.json          -- Rojo project config
+CHANGELOG.md                  -- Version history
 ```
 
 ## Getting Started
@@ -92,11 +94,9 @@ rojo sourcemap default.project.json -o sourcemap.json
 
 ## Documentation
 
-Detailed system documentation lives in [`assets/raw/docs/`](assets/raw/docs/):
-
-- [Architecture](assets/raw/docs/ARCHITECTURE.md) — full system overview, data flow, and security model
-- [Drag-and-Drop](assets/raw/docs/DRAG_AND_DROP.md) — coordinate spaces, ghost rendering, hit detection
-- [Changelog](assets/raw/docs/CHANGELOG.md) — version history
+- [Architecture](docs/ARCHITECTURE.md) — full system overview, data flow, and security model
+- [Drag-and-Drop](docs/DRAG_AND_DROP.md) — coordinate spaces, ghost rendering, hit detection
+- [Changelog](CHANGELOG.md) — version history
 
 ## Status
 
