@@ -1,0 +1,22 @@
+# Roblox Studio place/lock files
+*.rbxlx
+*.rbxl
+*.rbxlx.lock
+*.rbxl.lock
+
+# Rojo sourcemap
+sourcemap.json
+
+# Rojo binaries (large, platform-specific)
+tools/
+
+# Raw assets (textures, audio — kept local, not in repo)
+assets/raw/textures/
+assets/raw/audio/
+assets/raw/scripts/
+
+# macOS
+.DS_Store
+
+# Claude Code local settings
+.claude/
