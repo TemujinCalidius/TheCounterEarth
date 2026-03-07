@@ -235,6 +235,18 @@ local function clearHotbarSlot(player: Player, slot: number)
 	tryDestroy(player:FindFirstChildOfClass("Backpack"))
 end
 
+-- ── Hotbar orphan cleanup ────────────────────────────────────────────────
+-- Call after any operation that removes items from inventory.
+-- Clears hotbar pins whose itemId no longer exists in any inventory slot.
+local function cleanOrphanedHotbarPins(player: Player)
+	for slot = 1, HOTBAR_SIZE do
+		local pinned = tostring(player:GetAttribute(slotAttrName(slot)) or "")
+		if pinned ~= "" and getTotalQty(player, pinned) == 0 then
+			clearHotbarSlot(player, slot)
+		end
+	end
+end
+
 -- ── Loot bag ──────────────────────────────────────────────────────────────
 
 local function createLootBag(player: Player, items: { { itemId: string, qty: number } })
@@ -408,14 +420,7 @@ useItemRemote.OnServerEvent:Connect(function(player, rawItemId)
 	end
 	if next(payload) then consumeEffectEvent:Fire(player, payload) end
 
-	if getTotalQty(player, itemId) == 0 then
-		for slot = 1, HOTBAR_SIZE do
-			if player:GetAttribute(slotAttrName(slot)) == itemId then
-				clearHotbarSlot(player, slot)
-				break
-			end
-		end
-	end
+	cleanOrphanedHotbarPins(player)
 end)
 
 -- ── CraftItem ─────────────────────────────────────────────────────────────
@@ -436,6 +441,7 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		removeQty(player, ing.itemId, ing.qty)
 	end
 	addQty(player, recipe.output.itemId, recipe.output.qty)
+	cleanOrphanedHotbarPins(player)
 end)
 
 -- ── PinToHotbar (first free slot) ─────────────────────────────────────────
@@ -584,6 +590,7 @@ dropItemRemote.OnServerEvent:Connect(function(player, rawSlot, rawQty)
 
 	setSlot(player, slot, itemId, slotQty - qty)
 	refreshWeight(player)
+	cleanOrphanedHotbarPins(player)
 	createLootBag(player, { { itemId = itemId, qty = qty } })
 end)
 
