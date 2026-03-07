@@ -21,6 +21,7 @@ local hotbarEquipRemote       = remotesFolder:WaitForChild("HotbarEquipRequest")
 local hotbarAttackRemote      = remotesFolder:WaitForChild("HotbarAttackRequest")
 local unpinFromHotbarRemote   = remotesFolder:WaitForChild("UnpinFromHotbar")
 local swapHotbarSlotsRemote   = remotesFolder:WaitForChild("SwapHotbarSlots")
+local useItemRemote           = remotesFolder:WaitForChild("UseItem")
 local hotbarSlotCount = math.clamp(math.floor(tonumber(Config.Hotbar and Config.Hotbar.Slots) or 9), 1, 9)
 
 -- Expanded survival panel dimensions
@@ -633,6 +634,18 @@ end
 local breathingSound = createLoopedSound("BreathingLoop", AssetIds.Sounds.Breathing)
 local heartbeatSound = createLoopedSound("HeartbeatLoop", AssetIds.Sounds.Heartbeat)
 
+-- Chewing sound — plays briefly when eating food (not drinks)
+local chewingSound = Instance.new("Sound")
+chewingSound.Name = "ChewingSound"
+chewingSound.SoundId = AssetIds.Sounds.Chewing
+chewingSound.Looped = true
+chewingSound.Volume = 0.5
+chewingSound.Parent = SoundService
+
+-- ── Eating state ─────────────────────────────────────────────────────────
+local EAT_CHANNEL_TIME = 2.0   -- seconds to eat
+local isEating = false
+
 -- ---------------------------------------------------------------------------
 -- Character reference
 -- ---------------------------------------------------------------------------
@@ -739,9 +752,31 @@ end
 local function tryAttackWithEquippedItem()
 	if equippedSlot < 1 or equippedSlot > hotbarSlotCount then return end
 	local itemValue = player:GetAttribute(getSlotAttributeName(equippedSlot))
-	if type(itemValue) == "string" and itemValue ~= "" then
-		hotbarAttackRemote:FireServer()
+	if type(itemValue) ~= "string" or itemValue == "" then return end
+
+	local def = ItemRegistry.get(itemValue)
+	if def and def.onConsume then
+		if isEating then return end
+		isEating = true
+
+		-- Start chewing sound (not for drinks)
+		if not ItemRegistry.hasTag(def, "drink") then
+			chewingSound:Play()
+		end
+
+		-- Wait the full eat duration, then consume
+		task.spawn(function()
+			task.wait(EAT_CHANNEL_TIME)
+			if not isEating then return end
+
+			useItemRemote:FireServer(itemValue)
+			chewingSound:Stop()
+			isEating = false
+		end)
+		return
 	end
+
+	hotbarAttackRemote:FireServer()
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)

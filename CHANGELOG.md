@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.5.0] - 2026-03-08
+
+### Added
+- **Scatter template system** — ScatterSpawnService clones Studio-placed MeshPart/Model templates from `ServerStorage/ScatterModels/` instead of creating placeholder parts. Fallback to coloured placeholders for items without templates
+- **Rojo asset persistence** — `init.meta.json` with `ignoreUnknownInstances` in `ServerStorage/ScatterModels/` prevents Rojo from deleting Studio-placed mesh models on sync
+- **Consumable eating channel** — 2-second eat channel with chewing sound before item is consumed. Client-side `isEating` flag prevents overlapping eats
+- **Server-side eat cooldown** — 2-second cooldown on `UseItem` prevents rapid-fire consumption exploits
+- **Water Well script** (`WaterWell.server.luau`) — attaches ProximityPrompt to any Part named "WaterWell" in Workspace; pressing E fully restores thirst via `ConsumeEffect`
+- **Chewing sound asset** — added `ChewingSound` to AssetIds for eating feedback
+
+### Changed
+- `ScatterSpawnService` now looks up templates via `findTemplate()` in `ServerStorage/ScatterModels/`; wraps bare MeshParts in a Model automatically
+- `getZoneBounds()` now filters only `BasePart` children from ScatterZones (previously could pick non-BasePart children like folders)
+- `InventoryService` tool building now clones MeshPart templates as the tool Handle directly (no invisible Handle + Weld pattern), with `tool.Grip = CFrame.new(0, -0.4, 0)` for correct hand positioning
+- `HudController` eating flow refactored: click starts 2s channel with chewing sound, then fires `UseItem` on completion. Drinks skip chewing sound
+- `ItemRegistry` BrownMushroom updated with `meshSize` field for proper tool handle sizing
+
+### Fixed
+- Scatter items spawning outside ScatterZones when the folder contained non-BasePart children (e.g. Templates subfolder)
+- 1 HP/s health drain caused by thirst reaching 0 (dehydration) — added Water Well for testing thirst refill
+
+---
+
 ## [0.4.0] - 2026-03-07
 
 ### Added

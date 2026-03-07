@@ -193,14 +193,33 @@ local function findFreeHotbarSlot(player: Player): number?
 	return nil
 end
 
+-- Looks for a Studio-placed Model or MeshPart in ServerStorage > ScatterModels.
+local function findScatterTemplate(itemId: string): Instance?
+	local folder = ServerStorage:FindFirstChild("ScatterModels")
+	if not folder then return nil end
+	local tmpl = folder:FindFirstChild(itemId)
+	if tmpl and (tmpl:IsA("Model") or tmpl:IsA("BasePart")) then return tmpl end
+	return nil
+end
+
 local function spawnToolInBackpack(player: Player, itemId: string)
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	if not backpack then return end
 	if backpack:FindFirstChild(itemId) or
 		(player.Character and player.Character:FindFirstChild(itemId)) then return end
 
+	local def = ItemRegistry.get(itemId)
+
+	-- Clear any stale cached template so we always use the latest build
 	local toolsFolder = ServerStorage:FindFirstChild(ITEM_TOOLS_FOLDER)
-	local template    = toolsFolder and toolsFolder:FindFirstChild(itemId)
+	local stale = toolsFolder and toolsFolder:FindFirstChild(itemId)
+	if stale and stale:GetAttribute("_autoBuild") then
+		stale:Destroy()
+		stale = nil
+	end
+
+	-- Use an existing hand-placed template (e.g. swords from ToolInventoryService)
+	local template = toolsFolder and toolsFolder:FindFirstChild(itemId)
 	if template and template:IsA("Tool") then
 		local clone = template:Clone()
 		clone.Name  = itemId
@@ -209,7 +228,52 @@ local function spawnToolInBackpack(player: Player, itemId: string)
 		return
 	end
 
-	local def  = ItemRegistry.get(itemId)
+	-- Build a Tool from a Studio-placed scatter template (ServerStorage/ScatterModels)
+	local scatterTemplate = findScatterTemplate(itemId)
+	if scatterTemplate then
+		-- Template can be a bare MeshPart or a Model containing one
+		local meshSource: BasePart? = nil
+		if scatterTemplate:IsA("BasePart") then
+			meshSource = scatterTemplate
+		else
+			meshSource = scatterTemplate:FindFirstChildWhichIsA("MeshPart", true)
+				or scatterTemplate:FindFirstChildWhichIsA("BasePart", true)
+		end
+
+		if meshSource then
+			local tool = Instance.new("Tool")
+			tool.Name    = itemId
+			tool.ToolTip = def and def.displayName or itemId
+			tool:SetAttribute("_fromInv", true)
+			tool.CanBeDropped         = false
+			tool.ManualActivationOnly = true
+
+			-- Use the mesh itself as the Handle (no weld, no second part)
+			local handle     = meshSource:Clone()
+			handle.Name      = "Handle"
+			handle.Size      = (def and def.meshSize) or Vector3.new(0.5, 0.5, 0.5)
+			handle.Anchored  = false
+			handle.CanCollide = false
+			handle.CanTouch  = false
+			handle.CanQuery  = false
+			handle.Massless  = true
+			handle.Parent    = tool
+
+			tool.Grip = CFrame.new(0, -0.4, 0)
+
+			-- Cache for future spawns (marked so we can clear stale versions)
+			tool:SetAttribute("_autoBuild", true)
+			if toolsFolder then
+				local tmpl  = tool:Clone()
+				tmpl.Parent = toolsFolder
+			end
+
+			tool.Parent = backpack
+			return
+		end
+	end
+
+	-- Fallback: handle-less tool
 	local tool = Instance.new("Tool")
 	tool.Name           = itemId
 	tool.RequiresHandle = false
@@ -388,11 +452,20 @@ end)
 
 -- ── UseItem ───────────────────────────────────────────────────────────────
 
+local EAT_COOLDOWN = 2.0  -- seconds; must finish channel before next use
+local lastEatTime: { [Player]: number } = {}
+
 useItemRemote.OnServerEvent:Connect(function(player, rawItemId)
 	local itemId = sanitizeItemId(rawItemId)
 	if itemId == "" then return end
 	local def = ItemRegistry.get(itemId)
 	if not def or not def.onConsume then return end
+
+	-- Server-side cooldown (anti-spam)
+	local now = os.clock()
+	if lastEatTime[player] and now - lastEatTime[player] < EAT_COOLDOWN then return end
+	lastEatTime[player] = now
+
 	if not removeQty(player, itemId, 1) then return end
 
 	local effects = def.onConsume
@@ -610,6 +683,9 @@ end)
 -- ── Player lifecycle ──────────────────────────────────────────────────────
 
 Players.PlayerAdded:Connect(initPlayer)
+Players.PlayerRemoving:Connect(function(player)
+	lastEatTime[player] = nil
+end)
 for _, player in ipairs(Players:GetPlayers()) do
 	initPlayer(player)
 end

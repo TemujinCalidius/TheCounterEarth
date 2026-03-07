@@ -54,6 +54,8 @@ export type ItemDef = {
 	tool: ToolInfo?,
 	tags: { string },
 	icon: string,            -- rbxassetid://... ; "" until uploaded
+	meshId: string?,         -- rbxassetid://... for 3D mesh; nil = no mesh
+	meshSize: Vector3?,      -- size for the mesh when held in hand; nil = default 0.5
 }
 
 local Items: { [string]: ItemDef } = {}
@@ -86,9 +88,9 @@ Items.pebble = {
 	icon = "",
 }
 
-Items.mushroom = {
-	id = "mushroom",
-	displayName = "Mushroom",
+Items.BrownMushroom = {
+	id = "BrownMushroom",
+	displayName = "Brown Mushroom",
 	description = "A wild mushroom. Tastes better cooked.",
 	stackMax = 10,
 	weight = 0.1,
@@ -97,7 +99,9 @@ Items.mushroom = {
 	perishSeconds = 900,
 	onConsume = { health = 5, hunger = 10, thirst = 0 },
 	tags = { "food", "raw", "forage", "scatter" },
-	icon = "",
+	icon = "rbxassetid://136772121686318",
+	meshId = "rbxassetid://75194355299341",
+	meshSize = Vector3.new(0.5, 0.5, 0.5),
 }
 
 -- ---------------------------------------------------------------------------

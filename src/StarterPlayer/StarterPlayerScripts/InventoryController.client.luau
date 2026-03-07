@@ -12,11 +12,21 @@
 
 local Players               = game:GetService("Players")
 local ReplicatedStorage     = game:GetService("ReplicatedStorage")
+local SoundService          = game:GetService("SoundService")
 local ContextActionService  = game:GetService("ContextActionService")
 local UserInputService      = game:GetService("UserInputService")
 
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local CraftingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CraftingConfig"))
+
+-- Chewing sound for food consumption from inventory UI
+local chewingSound = Instance.new("Sound")
+chewingSound.Name = "InvChewingSound"
+chewingSound.SoundId = AssetIds.Sounds.Chewing
+chewingSound.Looped = true
+chewingSound.Volume = 0.5
+chewingSound.Parent = SoundService
 
 local remotes               = ReplicatedStorage:WaitForChild("Remotes")
 local useItemRemote         = remotes:WaitForChild("UseItem")            :: RemoteEvent
@@ -916,6 +926,13 @@ detailUseBtn.Activated:Connect(function()
 	local itemId = getSlotItemId(selectedSlot)
 	if itemId ~= "" then
 		useItemRemote:FireServer(itemId)
+		local def = ItemRegistry.get(itemId)
+		if def and def.onConsume and not ItemRegistry.hasTag(def, "drink") then
+			chewingSound:Play()
+			task.delay(1.5, function()
+				chewingSound:Stop()
+			end)
+		end
 	end
 end)
 
