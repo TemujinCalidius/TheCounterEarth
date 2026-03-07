@@ -80,46 +80,77 @@ return {
 	},
 
 	-- -------------------------------------------------------------------------
-	-- Bleeding  (status effect — NOT a persistent bar)
+	-- Blood  (persistent bar, 100 → 0)
 	--
-	-- Triggered by certain weapon hits. Stored as:
-	--   player attribute "IsBleeding"     (boolean)
-	--   player attribute "BleedStartTime" (os.time() timestamp)
+	-- Drains while IsBleeding is true.  Slowly regenerates when not bleeding.
+	-- Triggered by weapon hits / environmental hazards.
+	--   Attribute "Blood"     (number 0-100)
+	--   Attribute "IsBleeding"  (boolean — active wound)
 	--
-	-- Stops when:
-	--   • Player uses a Bandage item  (immediate)
-	--   • NaturalStopSeconds elapses  (slow natural clot)
+	-- Bleeding stops when:
+	--   • Player uses a Bandage item  (clears IsBleeding immediately)
+	--   • NaturalStopSeconds elapses  (wound clots on its own)
+	-- Blood bar continues to regen once the wound is closed.
 	-- -------------------------------------------------------------------------
-	Bleeding = {
-		HealthDrainPerSecond = 2.0,
+	Blood = {
+		Max        = 100,
+		StartValue = 100,
 
-		-- How long until bleeding stops on its own without treatment
+		-- Blood lost per second per bleed stack while IsBleeding is active
+		DrainPerSecond = 100 / (2 * 60),   -- per stack; 2 stacks = empty in ~1 min
+
+		-- Blood recovered per second when NOT bleeding
+		-- Requires hunger AND thirst above RegenMinStat to regen at full rate.
+		-- Below that threshold, regen is halved. At 0 hunger or thirst, regen stops.
+		RegenPerSecond = 100 / (5 * 60),   -- full recovery in ~5 minutes
+		RegenMinStat   = 50,               -- hunger/thirst must be above this for full regen
+
+		-- How long until one bleed stack clots on its own (per stack)
 		NaturalStopSeconds = 120,
+
+		-- What happens when blood reaches 0
+		OnEmpty = {
+			HealthDrainPerSecond = 3.0,    -- severe — no blood = dying fast
+		},
+
+		WarningThreshold = 30,
 	},
 
 	-- -------------------------------------------------------------------------
-	-- Poison  (status effect — NOT a persistent bar)
+	-- Poison  (persistent bar, 0 → 100)
 	--
-	-- Stored as:
-	--   player attribute "IsPoisoned"      (boolean)
-	--   player attribute "PoisonStartTime" (os.time() timestamp)
+	-- Fills while IsPoisoned is true.  Slowly decays when not being poisoned.
+	--   Attribute "Poison"      (number 0-100)
+	--   Attribute "IsPoisoned"  (boolean — actively being poisoned)
 	--
-	-- Weakens over time (damage falls off). Clears with Antidote or after
-	-- NaturalClearSeconds.
+	-- IsPoisoned clears when:
+	--   • Player uses an Antidote item  (clears IsPoisoned immediately)
+	--   • NaturalClearSeconds elapses
+	-- Poison level still decays naturally after the source is removed.
+	--
+	-- Effects SCALE with the poison level:
+	--   Health drain = (Poison / 100) * HealthDrainPerSecondAtMax
 	-- -------------------------------------------------------------------------
 	Poison = {
-		-- Starting health drain per second (reduces as poison weakens)
-		HealthDrainPerSecond = 1.0,
+		Max        = 100,
+		StartValue = 0,
 
-		-- Poison potency decays at this rate per second (multiplicative)
-		-- e.g. 0.02 → after 50 s the drain is ~37% of original
-		DecayRate = 0.02,
+		-- Poison accumulated per second while IsPoisoned is active
+		FillPerSecond = 100 / (3 * 60),   -- reaches 100 in ~3 minutes
 
-		-- Clears entirely without antidote after this long
+		-- Poison removed per second when NOT being poisoned
+		DecayPerSecond = 100 / (4 * 60),  -- clears fully in ~4 minutes
+
+		-- How long until IsPoisoned clears on its own
 		NaturalClearSeconds = 180,
 
-		-- Energy regen penalty while poisoned
+		-- Health drain at max poison (100).  Scales linearly with level.
+		HealthDrainPerSecondAtMax = 2.0,
+
+		-- Energy regen penalty while any poison is present (Poison > 0)
 		EnergyRegenMultiplier = 0.5,
+
+		WarningThreshold = 30,
 	},
 
 	-- -------------------------------------------------------------------------
@@ -149,8 +180,13 @@ return {
 		Fatigue         = "Fatigue",
 		MaxFatigue      = "MaxFatigue",
 
+		Blood           = "Blood",
+		MaxBlood        = "MaxBlood",
 		IsBleeding      = "IsBleeding",
+		BleedStacks     = "BleedStacks",
 		BleedStartTime  = "BleedStartTime",
+		Poison          = "Poison",
+		MaxPoison       = "MaxPoison",
 		IsPoisoned      = "IsPoisoned",
 		PoisonStartTime = "PoisonStartTime",
 

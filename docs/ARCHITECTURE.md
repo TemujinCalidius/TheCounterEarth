@@ -6,7 +6,7 @@
 src/
 ├── ReplicatedStorage/Config/       -- Shared configuration (client + server)
 │   ├── GameplayConfig.luau         -- Energy, movement, health, credits, hotbar, inventory
-│   ├── StatsConfig.luau            -- Hunger, thirst, fatigue, bleeding, poison
+│   ├── StatsConfig.luau            -- Hunger, thirst, fatigue, blood bar, poison bar
 │   ├── ItemRegistry.luau           -- Item definitions (weight, stackMax, category, etc.)
 │   ├── CraftingConfig.luau         -- Crafting recipes
 │   ├── AssetIds.luau               -- rbxassetid:// mappings for images and sounds
@@ -50,7 +50,9 @@ The central server authority for player data. Owns the `Remotes` folder.
 - At 0 energy: jumping disabled, walk speed drops to exhausted speed (6)
 - Health: loaded from DataStore, no auto-regen (destroys the default Health regen script)
 - Survival stats: hunger, thirst, fatigue — each drains over time with configurable rates
-- Status effects: bleeding (timed health drain), poison (exponentially decaying drain)
+- Blood bar (100 → 0): drains while IsBleeding, regens when wound clots (gated by hunger/thirst). At 0: severe health drain
+- Poison bar (0 → 100): fills while IsPoisoned, decays when source removed. Health drain scales with level
+- Bleed stacking: multiple wounds = faster blood drain. Natural clotting removes one stack per NaturalStopSeconds
 - Weight-based speed penalty: SlowThreshold (80%) -> CrawlThreshold (100%) -> StopThreshold (150%)
 - Credits: DataStore persistence with legacy store migration
 - RPG stat attributes (STR, AGI, CON, WIS, INT, CHA) — initialized to 0, reserved for future SkillSystem
@@ -59,12 +61,16 @@ The central server authority for player data. Owns the `Remotes` folder.
 - Store name: `PlayerProfileV2`, key format: `player_{userId}`
 - Profile version: 4
 - Auto-saves every 60s when dirty, force-saves on leave and BindToClose
-- Saves: credits, energy, health, hunger, thirst, fatigue, hotbar inventory, slot-based inventory
+- Saves: credits, energy, health, hunger, thirst, fatigue, blood, poison, bleed stacks, active effect flags, hotbar inventory, slot-based inventory
 
 **Remote Events (created here):**
 - `SprintIntent` — client tells server sprint on/off
 - `HotbarEquipRequest` — client requests equip by slot number
 - `HotbarAttackRequest` — reserved for attack input
+
+**BindableEvents (ServerStorage/ServerBindables):**
+- `ConsumeEffect` — InventoryService fires consume effects (hunger/thirst/energy/blood/poison deltas, stopBleed/stopPoison)
+- `ApplyStatusEffect` — weapon scripts / test parts fire `"bleed"`, `"poison"`, `"clearBleed"`, `"clearPoison"`
 
 ### 2. Inventory (InventoryService)
 
@@ -121,8 +127,9 @@ Client-side UI rendering.
 
 **HUD Panel (top-left):**
 - Health bar (red), Energy bar (green), Credits display
-- Survival stat bars: Hunger (orange), Thirst (blue), Fatigue (purple)
-- Status indicators: bleeding, poisoned
+- Survival stat bars: Hunger (orange), Thirst (blue), Fatigue (purple), Blood (red), Poison (green)
+- Status indicators: bleeding (with BloodIcon), poisoned (with PoisonIcon), pulsing badges
+- Particle effects on character: blood drip particles while bleeding, green toxic aura while poisoned
 - Icons from AssetIds with fallback text
 - Disables default Roblox health bar and backpack GUI
 

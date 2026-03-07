@@ -68,6 +68,10 @@ local consumeEffectEvent = Instance.new("BindableEvent")
 consumeEffectEvent.Name = "ConsumeEffect"
 consumeEffectEvent.Parent = bindablesFolder
 
+local applyStatusEvent = Instance.new("BindableEvent")
+applyStatusEvent.Name = "ApplyStatusEffect"
+applyStatusEvent.Parent = bindablesFolder
+
 type PlayerState = {
 	energy: number,
 	savedHealth: number,
@@ -85,7 +89,10 @@ type PlayerState = {
 	hunger: number,
 	thirst: number,
 	fatigue: number,
-	bleedStartTime: number?,   -- os.time() when bleeding started; nil = not bleeding
+	blood: number,
+	poison: number,
+	bleedStacks: number,       -- number of active bleed wounds (0 = not bleeding)
+	bleedStartTime: number?,   -- os.time() when most recent stack was added; nil = not bleeding
 	poisonStartTime: number?,  -- os.time() when poisoned started; nil = not poisoned
 }
 
@@ -213,6 +220,11 @@ local function makeDefaultProfile(): { [string]: any }
 			Hunger  = StatsConfig.Hunger.StartValue,
 			Thirst  = StatsConfig.Thirst.StartValue,
 			Fatigue = StatsConfig.Fatigue.StartValue,
+			Blood   = StatsConfig.Blood.StartValue,
+			Poison  = StatsConfig.Poison.StartValue,
+			IsBleeding = false,
+			BleedStacks = 0,
+			IsPoisoned = false,
 		},
 		inventory = emptyInventory(),
 		invSlots = {},
@@ -288,9 +300,17 @@ local function decodeProfile(raw: any): { [string]: any }?
 	local hunger  = tonumber(survivalRaw.Hunger)  or tonumber(survivalRaw.hunger)
 	local thirst  = tonumber(survivalRaw.Thirst)  or tonumber(survivalRaw.thirst)
 	local fatigue = tonumber(survivalRaw.Fatigue) or tonumber(survivalRaw.fatigue)
+	local blood   = tonumber(survivalRaw.Blood)   or tonumber(survivalRaw.blood)
+	local poison  = tonumber(survivalRaw.Poison)  or tonumber(survivalRaw.poison)
 	if type(hunger)  ~= "number" then hunger  = StatsConfig.Hunger.StartValue  end
 	if type(thirst)  ~= "number" then thirst  = StatsConfig.Thirst.StartValue  end
 	if type(fatigue) ~= "number" then fatigue = StatsConfig.Fatigue.StartValue end
+	if type(blood)   ~= "number" then blood   = StatsConfig.Blood.StartValue   end
+	if type(poison)  ~= "number" then poison  = StatsConfig.Poison.StartValue  end
+
+	local wasBleeding   = survivalRaw.IsBleeding == true
+	local savedStacks   = math.max(0, math.floor(tonumber(survivalRaw.BleedStacks) or (wasBleeding and 1 or 0)))
+	local wasPoisoned   = survivalRaw.IsPoisoned == true
 
 	local inventoryRaw = raw.inventory
 	if type(raw.Inventory) == "table" then
@@ -306,6 +326,11 @@ local function decodeProfile(raw: any): { [string]: any }?
 			Hunger  = math.clamp(hunger,  0, StatsConfig.Hunger.Max),
 			Thirst  = math.clamp(thirst,  0, StatsConfig.Thirst.Max),
 			Fatigue = math.clamp(fatigue, 0, StatsConfig.Fatigue.Max),
+			Blood   = math.clamp(blood,   0, StatsConfig.Blood.Max),
+			Poison  = math.clamp(poison,  0, StatsConfig.Poison.Max),
+			IsBleeding = wasBleeding,
+			BleedStacks = savedStacks,
+			IsPoisoned = wasPoisoned,
 		},
 		inventory = decodeInventory(inventoryRaw),
 		invSlots  = decodeInvSlots(raw),
@@ -462,8 +487,9 @@ end
 local function setSurvivalStat(player: Player, state: PlayerState, field: string, attrName: string, newValue: number, max: number)
 	local clamped = math.clamp(newValue, 0, max)
 	local s: any = state
-	if math.abs(s[field] - clamped) > 0.01 then
-		s[field] = clamped
+	local prev = s[field]
+	s[field] = clamped  -- always accumulate (small per-frame deltas must not be lost)
+	if math.abs(prev - clamped) > 0.01 then
 		state.profileDirty = true
 	end
 	local rounded = round1(clamped)
@@ -484,15 +510,40 @@ local function setFatigue(player: Player, state: PlayerState, value: number)
 	setSurvivalStat(player, state, "fatigue", StatsConfig.AttributeNames.Fatigue, value, StatsConfig.Fatigue.Max)
 end
 
+local function setBlood(player: Player, state: PlayerState, value: number)
+	setSurvivalStat(player, state, "blood", StatsConfig.AttributeNames.Blood, value, StatsConfig.Blood.Max)
+end
+
+local function setPoison(player: Player, state: PlayerState, value: number)
+	setSurvivalStat(player, state, "poison", StatsConfig.AttributeNames.Poison, value, StatsConfig.Poison.Max)
+end
+
 local function startBleeding(player: Player, state: PlayerState)
-	state.bleedStartTime = os.time()
+	state.bleedStacks += 1
+	state.bleedStartTime = os.time()  -- reset clot timer on new wound
 	player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, true)
+	player:SetAttribute(StatsConfig.AttributeNames.BleedStacks, state.bleedStacks)
 	player:SetAttribute(StatsConfig.AttributeNames.BleedStartTime, state.bleedStartTime)
 end
 
+local function removeBleedStack(player: Player, state: PlayerState)
+	state.bleedStacks = math.max(0, state.bleedStacks - 1)
+	if state.bleedStacks <= 0 then
+		state.bleedStacks = 0
+		state.bleedStartTime = nil
+		player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, false)
+	else
+		state.bleedStartTime = os.time()  -- reset clot timer for remaining stacks
+	end
+	player:SetAttribute(StatsConfig.AttributeNames.BleedStacks, state.bleedStacks)
+	player:SetAttribute(StatsConfig.AttributeNames.BleedStartTime, state.bleedStartTime or 0)
+end
+
 local function stopBleeding(player: Player, state: PlayerState)
+	state.bleedStacks = 0
 	state.bleedStartTime = nil
 	player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, false)
+	player:SetAttribute(StatsConfig.AttributeNames.BleedStacks, 0)
 	player:SetAttribute(StatsConfig.AttributeNames.BleedStartTime, 0)
 end
 
@@ -566,6 +617,11 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 			Hunger  = round1(math.clamp(state.hunger,  0, StatsConfig.Hunger.Max)),
 			Thirst  = round1(math.clamp(state.thirst,  0, StatsConfig.Thirst.Max)),
 			Fatigue = round1(math.clamp(state.fatigue, 0, StatsConfig.Fatigue.Max)),
+			Blood   = round1(math.clamp(state.blood,   0, StatsConfig.Blood.Max)),
+			Poison  = round1(math.clamp(state.poison,  0, StatsConfig.Poison.Max)),
+			IsBleeding = state.bleedStartTime ~= nil,
+			BleedStacks = state.bleedStacks,
+			IsPoisoned = state.poisonStartTime ~= nil,
 		},
 		inventory = readInventoryFromPlayer(player),
 		invSlots  = invSlots,
@@ -708,9 +764,11 @@ local function setupCharacter(player: Player, character: Model)
 		state.sprintRequested = false
 		state.energy = Config.Energy.Max
 		state.savedHealth = humanoid.MaxHealth
-		-- Status effects clear on death; hunger/thirst/fatigue persist
-		if state.bleedStartTime then stopBleeding(player, state) end
+		-- Status effects and bars reset on death; hunger/thirst/fatigue persist
+		if state.bleedStacks > 0 then stopBleeding(player, state) end
 		if state.poisonStartTime then stopPoison(player, state) end
+		setBlood(player, state, StatsConfig.Blood.Max)
+		setPoison(player, state, 0)
 		state.profileDirty = true
 	end))
 end
@@ -734,8 +792,11 @@ local function setupPlayer(player: Player)
 		hunger = math.clamp(profile.survival.Hunger,  0, StatsConfig.Hunger.Max),
 		thirst = math.clamp(profile.survival.Thirst,  0, StatsConfig.Thirst.Max),
 		fatigue = math.clamp(profile.survival.Fatigue, 0, StatsConfig.Fatigue.Max),
-		bleedStartTime = nil,
-		poisonStartTime = nil,
+		blood = math.clamp(profile.survival.Blood,   0, StatsConfig.Blood.Max),
+		poison = math.clamp(profile.survival.Poison,  0, StatsConfig.Poison.Max),
+		bleedStacks = profile.survival.BleedStacks or 0,
+		bleedStartTime = if profile.survival.IsBleeding then os.time() else nil,
+		poisonStartTime = if profile.survival.IsPoisoned then os.time() else nil,
 	}
 
 	playerStates[player] = state
@@ -752,8 +813,24 @@ local function setupPlayer(player: Player)
 	player:SetAttribute(StatsConfig.AttributeNames.Thirst,     round1(state.thirst))
 	player:SetAttribute(StatsConfig.AttributeNames.MaxFatigue, StatsConfig.Fatigue.Max)
 	player:SetAttribute(StatsConfig.AttributeNames.Fatigue,    round1(state.fatigue))
-	player:SetAttribute(StatsConfig.AttributeNames.IsBleeding,  false)
-	player:SetAttribute(StatsConfig.AttributeNames.IsPoisoned,  false)
+	player:SetAttribute(StatsConfig.AttributeNames.MaxBlood,    StatsConfig.Blood.Max)
+	player:SetAttribute(StatsConfig.AttributeNames.Blood,       round1(state.blood))
+	player:SetAttribute(StatsConfig.AttributeNames.MaxPoison,   StatsConfig.Poison.Max)
+	player:SetAttribute(StatsConfig.AttributeNames.Poison,      round1(state.poison))
+	-- Restore active status effects — prevents relog dodge
+	player:SetAttribute(StatsConfig.AttributeNames.BleedStacks, state.bleedStacks)
+	if state.bleedStartTime then
+		player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, true)
+		player:SetAttribute(StatsConfig.AttributeNames.BleedStartTime, state.bleedStartTime)
+	else
+		player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, false)
+	end
+	if state.poisonStartTime then
+		player:SetAttribute(StatsConfig.AttributeNames.IsPoisoned, true)
+		player:SetAttribute(StatsConfig.AttributeNames.PoisonStartTime, state.poisonStartTime)
+	else
+		player:SetAttribute(StatsConfig.AttributeNames.IsPoisoned, false)
+	end
 	player:SetAttribute(StatsConfig.AttributeNames.IsResting,   false)
 	writeInventoryAttributes(player, decodeInventory(profile.inventory))
 
@@ -920,25 +997,60 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			setFatigue(player, state, state.fatigue - StatsConfig.Fatigue.DrainPerSecond * deltaTime)
 		end
 
-		-- ── Bleeding ──────────────────────────────────────────────────────────
-		if state.bleedStartTime then
+		-- ── Blood bar ─────────────────────────────────────────────────────────
+		if state.bleedStacks > 0 and state.bleedStartTime then
+			-- Active wound(s): drain blood scaled by stack count
 			local bleedElapsed = os.time() - state.bleedStartTime
-			if bleedElapsed >= StatsConfig.Bleeding.NaturalStopSeconds then
-				stopBleeding(player, state)
-			elseif humanoid.Health > 0 then
-				humanoid:TakeDamage(StatsConfig.Bleeding.HealthDrainPerSecond * deltaTime)
+			if bleedElapsed >= StatsConfig.Blood.NaturalStopSeconds then
+				removeBleedStack(player, state)  -- one stack clots naturally
+			end
+			if state.bleedStacks > 0 then
+				local drain = StatsConfig.Blood.DrainPerSecond * state.bleedStacks * deltaTime
+				setBlood(player, state, state.blood - drain)
+			end
+		else
+			-- No wound: regenerate blood (gated by hunger + thirst)
+			if state.blood < StatsConfig.Blood.Max then
+				local regenRate = StatsConfig.Blood.RegenPerSecond
+				local minStat  = StatsConfig.Blood.RegenMinStat
+				local hungerOk = state.hunger >= minStat
+				local thirstOk = state.thirst >= minStat
+				if state.hunger <= 0 or state.thirst <= 0 then
+					regenRate = 0  -- starving or dehydrated: no blood regen
+				elseif not hungerOk or not thirstOk then
+					regenRate = regenRate * 0.5  -- below threshold: half regen
+				end
+				if regenRate > 0 then
+					setBlood(player, state, state.blood + regenRate * deltaTime)
+				end
 			end
 		end
 
-		-- ── Poison ────────────────────────────────────────────────────────────
+		-- Blood empty → heavy health drain
+		if state.blood <= 0 and humanoid.Health > 0 then
+			humanoid:TakeDamage(StatsConfig.Blood.OnEmpty.HealthDrainPerSecond * deltaTime)
+		end
+
+		-- ── Poison bar ────────────────────────────────────────────────────────
 		if state.poisonStartTime then
+			-- Active poison source: fill bar
 			local poisonElapsed = os.time() - state.poisonStartTime
 			if poisonElapsed >= StatsConfig.Poison.NaturalClearSeconds then
 				stopPoison(player, state)
-			elseif humanoid.Health > 0 then
-				local potency = math.exp(-StatsConfig.Poison.DecayRate * poisonElapsed)
-				humanoid:TakeDamage(StatsConfig.Poison.HealthDrainPerSecond * potency * deltaTime)
+			else
+				setPoison(player, state, state.poison + StatsConfig.Poison.FillPerSecond * deltaTime)
 			end
+		else
+			-- No active source: decay poison
+			if state.poison > 0 then
+				setPoison(player, state, state.poison - StatsConfig.Poison.DecayPerSecond * deltaTime)
+			end
+		end
+
+		-- Poison effects scale with level (0-100)
+		if state.poison > 0 and humanoid.Health > 0 then
+			local poisonRatio = state.poison / StatsConfig.Poison.Max
+			humanoid:TakeDamage(StatsConfig.Poison.HealthDrainPerSecondAtMax * poisonRatio * deltaTime)
 		end
 	end
 end)
@@ -953,8 +1065,31 @@ consumeEffectEvent.Event:Connect(function(player: Player, effects: { [string]: a
 	if type(effects.thirst)  == "number" then setThirst(player,  state, state.thirst  + effects.thirst)  end
 	if type(effects.fatigue) == "number" then setFatigue(player, state, state.fatigue + effects.fatigue) end
 	if type(effects.energy)  == "number" then setEnergy(player,  state, state.energy  + effects.energy)  end
-	if effects.stopBleed  and state.bleedStartTime  then stopBleeding(player, state) end
+	if type(effects.blood)   == "number" then setBlood(player,   state, state.blood   + effects.blood)   end
+	if type(effects.poison)  == "number" then setPoison(player,  state, state.poison  + effects.poison)  end
+	if effects.stopBleed  and state.bleedStacks > 0  then stopBleeding(player, state) end
 	if effects.stopPoison and state.poisonStartTime then stopPoison(player, state)   end
+end)
+
+-- ── Status effect trigger (fired by weapon scripts, test parts, etc.) ─────
+-- Usage: applyStatusEvent:Fire(player, "bleed")  or  ("poison")  or  ("clearBleed") / ("clearPoison")
+applyStatusEvent.Event:Connect(function(player: Player, effect: string)
+	local state = playerStates[player]
+	if not state then return end
+	if effect == "bleed" then
+		startBleeding(player, state)
+	elseif effect == "poison" then
+		if not state.poisonStartTime then
+			startPoison(player, state)
+		end
+	elseif effect == "clearBleed" then
+		if state.bleedStacks > 0 then stopBleeding(player, state) end
+	elseif effect == "clearPoison" then
+		if state.poisonStartTime then
+			stopPoison(player, state)
+			setPoison(player, state, 0)
+		end
+	end
 end)
 
 Players.PlayerAdded:Connect(setupPlayer)

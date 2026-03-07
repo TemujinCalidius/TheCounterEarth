@@ -86,20 +86,6 @@ Items.pebble = {
 	icon = "",
 }
 
-Items.wild_berry = {
-	id = "wild_berry",
-	displayName = "Wild Berries",
-	description = "Edible raw but worth cooking for more benefit.",
-	stackMax = 20,
-	weight = 0.05,
-	slotSize = { w = 1, h = 1 },
-	category = "food",
-	perishSeconds = 600,
-	onConsume = { health = 3, hunger = 5, thirst = 3 },
-	tags = { "food", "raw", "forage", "scatter" },
-	icon = "",
-}
-
 Items.mushroom = {
 	id = "mushroom",
 	displayName = "Mushroom",
@@ -256,20 +242,6 @@ Items.iron_ore = {
 -- ---------------------------------------------------------------------------
 -- FOOD — campfire cooked
 -- ---------------------------------------------------------------------------
-
-Items.cooked_berries = {
-	id = "cooked_berries",
-	displayName = "Cooked Berries",
-	description = "Berries warmed over a fire. More filling than raw.",
-	stackMax = 20,
-	weight = 0.05,
-	slotSize = { w = 1, h = 1 },
-	category = "food",
-	perishSeconds = 1800,
-	onConsume = { health = 8, hunger = 12, thirst = 5 },
-	tags = { "food", "cooked" },
-	icon = "",
-}
 
 Items.cooked_mushroom = {
 	id = "cooked_mushroom",

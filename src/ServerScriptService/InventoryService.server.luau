@@ -481,7 +481,7 @@ pinToSpecificSlotRemote.OnServerEvent:Connect(function(player, rawItemId, rawTar
 
 	local def = ItemRegistry.get(itemId)
 	if not def then return end
-	if def.category ~= "tool" and def.category ~= "weapon" and not def.onConsume then return end
+	-- No category gate: if the player explicitly drags an item to the hotbar, allow it.
 	if getTotalQty(player, itemId) < 1 then return end
 
 	local current = tostring(player:GetAttribute(slotAttrName(targetSlot)) or "")
@@ -571,6 +571,19 @@ swapSlotsRemote.OnServerEvent:Connect(function(player, rawSlotA, rawSlotB)
 	local itemIdB = getSlotItemId(player, slotB)
 	local qtyB    = getSlotQty(player, slotB)
 
+	-- Same item → merge stacks up to stackMax; overflow stays in source slot.
+	if itemIdA ~= "" and itemIdA == itemIdB then
+		local def      = ItemRegistry.get(itemIdA)
+		local stackMax = def and def.stackMax or 1
+		local transfer = math.min(qtyA, stackMax - qtyB)
+		if transfer > 0 then
+			setSlot(player, slotB, itemIdB, qtyB + transfer)
+			setSlot(player, slotA, itemIdA, qtyA - transfer)  -- clears slot if 0
+		end
+		return
+	end
+
+	-- Different items (or one is empty) → swap.
 	setSlot(player, slotA, itemIdB, qtyB)
 	setSlot(player, slotB, itemIdA, qtyA)
 end)

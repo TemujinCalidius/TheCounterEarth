@@ -1,9 +1,14 @@
 return {
 	Meshes = {},
 	Images = {
-		HealthIcon = "rbxassetid://86758571965289",
-		EnergyIcon = "rbxassetid://86894094132949",
-		CreditIcon = "rbxassetid://123793462308273",
+		HealthIcon = "rbxassetid://73130900498783",
+		EnergyIcon = "rbxassetid://133917117958357",
+		CreditIcon = "rbxassetid://95573581023880",
+		HungerIcon = "rbxassetid://133797514188668",
+		ThirstIcon = "rbxassetid://78212328309964",
+		BloodIcon = "rbxassetid://88336007519071",
+		PoisonIcon = "rbxassetid://79915215295672",
+		FatigueIcon = "rbxassetid://133260095006377",
 		Vignette = "rbxassetid://117281807378470",
 	},
 	Sounds = {

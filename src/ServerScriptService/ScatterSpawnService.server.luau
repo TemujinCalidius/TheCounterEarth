@@ -1,5 +1,5 @@
 -- ScatterSpawnService.server.luau
--- Spawns floor-scatter items (twig, pebble, wild_berry, mushroom) in the
+-- Spawns floor-scatter items (twig, pebble, mushroom) in the
 -- world as Models tagged with _ScatterItem = itemId.
 -- InventoryService handles the pickup prompts automatically.
 --
@@ -46,14 +46,6 @@ local SCATTER: { ScatterDef } = {
 		respawnMax = 90,
 		color      = Color3.fromRGB(140, 140, 140),
 		size       = Vector3.new(0.42, 0.3, 0.46),
-	},
-	{
-		itemId     = "wild_berry",
-		maxCount   = 6,
-		respawnMin = 60,
-		respawnMax = 180,
-		color      = Color3.fromRGB(180, 40, 60),
-		size       = Vector3.new(0.35, 0.35, 0.35),
 	},
 	{
 		itemId     = "mushroom",

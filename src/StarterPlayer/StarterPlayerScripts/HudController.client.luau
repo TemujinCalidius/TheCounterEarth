@@ -25,7 +25,7 @@ local hotbarSlotCount = math.clamp(math.floor(tonumber(Config.Hotbar and Config.
 
 -- Expanded survival panel dimensions
 local PANEL_WIDTH = 352
-local EXPANDED_HEIGHT = 156  -- 3 bars x 40px + status row 28px + 8px padding
+local EXPANDED_HEIGHT = 236  -- 5 bars x 40px + status row 28px + 8px padding
 local EXPAND_TWEEN  = TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local COLLAPSE_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
 
@@ -182,7 +182,7 @@ local function createBarRow(
 	return { BarFill = barFill, ValueLabel = valueLabel, BarBackground = barBackground }
 end
 
-local function createStatusBadge(parent: Instance, xOffset: number, label: string, color: Color3): { Frame: Frame, Visible: (boolean) -> () }
+local function createStatusBadge(parent: Instance, xOffset: number, label: string, color: Color3, iconAssetId: string?): { Frame: Frame, Visible: (boolean) -> () }
 	local badge = Instance.new("Frame")
 	badge.Name = label .. "Badge"
 	badge.Size = UDim2.fromOffset(90, 22)
@@ -194,13 +194,27 @@ local function createStatusBadge(parent: Instance, xOffset: number, label: strin
 	badge.Parent = parent
 	createRoundedCorner(badge, UDim.new(0, 6))
 
+	local iconId = iconAssetId and normalizeAssetId(iconAssetId) or ""
+	if iconId ~= "" then
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.BackgroundTransparency = 1
+		icon.Size = UDim2.fromOffset(16, 16)
+		icon.Position = UDim2.fromOffset(4, 3)
+		icon.Image = iconId
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.Parent = badge
+	end
+
 	local text = Instance.new("TextLabel")
 	text.BackgroundTransparency = 1
-	text.Size = UDim2.fromScale(1, 1)
+	text.Size = UDim2.new(1, iconId ~= "" and -22 or 0, 1, 0)
+	text.Position = UDim2.fromOffset(iconId ~= "" and 22 or 0, 0)
 	text.Font = Enum.Font.GothamBold
 	text.TextColor3 = Color3.fromRGB(255, 255, 255)
-	text.TextSize = 12
+	text.TextSize = 11
 	text.Text = label
+	text.TextXAlignment = Enum.TextXAlignment.Left
 	text.Parent = badge
 
 	local function setVisible(v: boolean)
@@ -374,20 +388,22 @@ expandedStroke.Color = Color3.fromRGB(210, 220, 245)
 expandedStroke.Parent = expandedPanel
 
 -- Survival stat bars inside the expanded panel
-local hungerRow  = createBarRow(expandedPanel, "Hunger",  "", "HG", 4,  Color3.fromRGB(220, 140, 40))
-local thirstRow  = createBarRow(expandedPanel, "Thirst",  "", "TH", 44, Color3.fromRGB(60, 160, 230))
-local fatigueRow = createBarRow(expandedPanel, "Fatigue", "", "FT", 84, Color3.fromRGB(160, 100, 220))
+local hungerRow  = createBarRow(expandedPanel, "Hunger",  normalizeAssetId(AssetIds.Images.HungerIcon),  "HG", 4,   Color3.fromRGB(220, 140, 40))
+local thirstRow  = createBarRow(expandedPanel, "Thirst",  normalizeAssetId(AssetIds.Images.ThirstIcon),  "TH", 44,  Color3.fromRGB(60, 160, 230))
+local fatigueRow = createBarRow(expandedPanel, "Fatigue", normalizeAssetId(AssetIds.Images.FatigueIcon), "FT", 84,  Color3.fromRGB(160, 100, 220))
+local bloodRow   = createBarRow(expandedPanel, "Blood",   normalizeAssetId(AssetIds.Images.BloodIcon),   "BL", 124, Color3.fromRGB(180, 40, 40))
+local poisonRow  = createBarRow(expandedPanel, "Poison",  normalizeAssetId(AssetIds.Images.PoisonIcon),  "PS", 164, Color3.fromRGB(60, 150, 60))
 
 -- Status effect badges row
 local statusRow = Instance.new("Frame")
 statusRow.Name = "StatusRow"
 statusRow.BackgroundTransparency = 1
 statusRow.Size = UDim2.fromOffset(332, 28)
-statusRow.Position = UDim2.fromOffset(10, 124)
+statusRow.Position = UDim2.fromOffset(10, 204)
 statusRow.Parent = expandedPanel
 
-local bleedBadge  = createStatusBadge(statusRow, 0,   "Bleeding", Color3.fromRGB(180, 40,  40))
-local poisonBadge = createStatusBadge(statusRow, 96,  "Poisoned", Color3.fromRGB(60,  150, 60))
+local bleedBadge  = createStatusBadge(statusRow, 0,   "Bleeding", Color3.fromRGB(180, 40,  40), AssetIds.Images.BloodIcon)
+local poisonBadge = createStatusBadge(statusRow, 96,  "Poisoned", Color3.fromRGB(60,  150, 60), AssetIds.Images.PoisonIcon)
 
 -- ---------------------------------------------------------------------------
 -- Panel expand / collapse logic
@@ -675,7 +691,7 @@ local function refreshHotbar()
 		end
 
 		-- Qty badge: sum across all InvSlot_N that match this item.
-		if itemId ~= "" and def and def.onConsume ~= nil then
+		if itemId ~= "" then
 			local maxSlots = math.max(1, math.floor(tonumber(player:GetAttribute("MaxInvSlots")) or 5))
 			local qty = 0
 			for n = 1, maxSlots do
@@ -859,9 +875,15 @@ local COLOR_NORMAL_THIRST  = Color3.fromRGB( 60, 160, 230)
 local COLOR_WARN_THIRST    = Color3.fromRGB(210,  60,  40)
 local COLOR_NORMAL_FATIGUE = Color3.fromRGB(160, 100, 220)
 local COLOR_WARN_FATIGUE   = Color3.fromRGB(210,  60,  40)
+local COLOR_NORMAL_BLOOD   = Color3.fromRGB(180,  40,  40)
+local COLOR_WARN_BLOOD     = Color3.fromRGB(100,  10,  10)
+local COLOR_NORMAL_POISON  = Color3.fromRGB( 60, 150,  60)
+local COLOR_WARN_POISON    = Color3.fromRGB(180, 200,  40)
 
 -- Badge pulse timer
 local badgePulseTime = 0
+local bleedEmitter: ParticleEmitter? = nil
+local poisonEmitter: ParticleEmitter? = nil
 
 -- ---------------------------------------------------------------------------
 -- RenderStepped -- update all HUD elements
@@ -901,31 +923,48 @@ RunService.RenderStepped:Connect(function(deltaTime)
 	local maxHunger  = StatsConfig.Hunger.Max
 	local maxThirst  = StatsConfig.Thirst.Max
 	local maxFatigue = StatsConfig.Fatigue.Max
+	local maxBlood   = StatsConfig.Blood.Max
+	local maxPoison  = StatsConfig.Poison.Max
 
 	local hunger  = player:GetAttribute(StatsConfig.AttributeNames.Hunger)
 	local thirst  = player:GetAttribute(StatsConfig.AttributeNames.Thirst)
 	local fatigue = player:GetAttribute(StatsConfig.AttributeNames.Fatigue)
+	local blood   = player:GetAttribute(StatsConfig.AttributeNames.Blood)
+	local poison  = player:GetAttribute(StatsConfig.AttributeNames.Poison)
 
 	if type(hunger)  ~= "number" then hunger  = maxHunger  end
 	if type(thirst)  ~= "number" then thirst  = maxThirst  end
 	if type(fatigue) ~= "number" then fatigue = maxFatigue end
+	if type(blood)   ~= "number" then blood   = maxBlood   end
+	if type(poison)  ~= "number" then poison  = 0          end
 
 	local hungerRatio  = math.clamp(hunger  / maxHunger,  0, 1)
 	local thirstRatio  = math.clamp(thirst  / maxThirst,  0, 1)
 	local fatigueRatio = math.clamp(fatigue / maxFatigue, 0, 1)
+	local bloodRatio   = math.clamp(blood   / maxBlood,   0, 1)
+	local poisonRatio  = math.clamp(poison  / maxPoison,  0, 1)
 
 	hungerRow.BarFill.Size  = UDim2.new(hungerRatio,  0, 1, 0)
 	thirstRow.BarFill.Size  = UDim2.new(thirstRatio,  0, 1, 0)
 	fatigueRow.BarFill.Size = UDim2.new(fatigueRatio, 0, 1, 0)
+	bloodRow.BarFill.Size   = UDim2.new(bloodRatio,   0, 1, 0)
+	poisonRow.BarFill.Size  = UDim2.new(poisonRatio,  0, 1, 0)
 
 	hungerRow.ValueLabel.Text  = string.format("%d%%", math.floor(hungerRatio  * 100 + 0.5))
 	thirstRow.ValueLabel.Text  = string.format("%d%%", math.floor(thirstRatio  * 100 + 0.5))
 	fatigueRow.ValueLabel.Text = string.format("%d%%", math.floor(fatigueRatio * 100 + 0.5))
+	bloodRow.ValueLabel.Text   = string.format("%d%%", math.floor(bloodRatio   * 100 + 0.5))
+	poisonRow.ValueLabel.Text  = string.format("%d%%", math.floor(poisonRatio  * 100 + 0.5))
 
 	-- Warning colour tint
-	hungerRow.BarFill.BackgroundColor3  = hungerRatio  < WARN and COLOR_WARN_HUNGER  or COLOR_NORMAL_HUNGER
-	thirstRow.BarFill.BackgroundColor3  = thirstRatio  < WARN and COLOR_WARN_THIRST  or COLOR_NORMAL_THIRST
-	fatigueRow.BarFill.BackgroundColor3 = fatigueRatio < WARN and COLOR_WARN_FATIGUE or COLOR_NORMAL_FATIGUE
+	local bloodWarn  = StatsConfig.Blood.WarningThreshold  / maxBlood
+	local poisonWarn = StatsConfig.Poison.WarningThreshold / maxPoison
+
+	hungerRow.BarFill.BackgroundColor3  = hungerRatio  < WARN       and COLOR_WARN_HUNGER  or COLOR_NORMAL_HUNGER
+	thirstRow.BarFill.BackgroundColor3  = thirstRatio  < WARN       and COLOR_WARN_THIRST  or COLOR_NORMAL_THIRST
+	fatigueRow.BarFill.BackgroundColor3 = fatigueRatio < WARN       and COLOR_WARN_FATIGUE or COLOR_NORMAL_FATIGUE
+	bloodRow.BarFill.BackgroundColor3   = bloodRatio   < bloodWarn  and COLOR_WARN_BLOOD   or COLOR_NORMAL_BLOOD
+	poisonRow.BarFill.BackgroundColor3  = poisonRatio  > poisonWarn and COLOR_WARN_POISON  or COLOR_NORMAL_POISON
 
 	-- Status effects
 
@@ -945,11 +984,87 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		badgePulseTime = 0
 	end
 
+	-- Particle effects on character (driven by bar levels)
+
+	local character = player.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+
+	if rootPart then
+		if isBleeding then
+			if not bleedEmitter or bleedEmitter.Parent ~= rootPart then
+				if bleedEmitter then bleedEmitter:Destroy() end
+				local emitter = Instance.new("ParticleEmitter")
+				emitter.Name = "BleedEffect"
+				emitter.Texture = normalizeAssetId(AssetIds.Images.BloodIcon)
+				emitter.Color = ColorSequence.new(Color3.fromRGB(180, 20, 20))
+				emitter.Size = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.25),
+					NumberSequenceKeypoint.new(1, 0.1),
+				})
+				emitter.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.2),
+					NumberSequenceKeypoint.new(0.8, 0.6),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				emitter.Lifetime = NumberRange.new(0.6, 1.2)
+				emitter.Rate = 8
+				emitter.Speed = NumberRange.new(0.5, 1.5)
+				emitter.SpreadAngle = Vector2.new(30, 30)
+				emitter.Acceleration = Vector3.new(0, -8, 0)
+				emitter.RotSpeed = NumberRange.new(-30, 30)
+				emitter.Parent = rootPart
+				bleedEmitter = emitter
+			end
+		else
+			if bleedEmitter then
+				bleedEmitter:Destroy()
+				bleedEmitter = nil
+			end
+		end
+
+		if poisonRatio > 0 then
+			if not poisonEmitter or poisonEmitter.Parent ~= rootPart then
+				if poisonEmitter then poisonEmitter:Destroy() end
+				local emitter = Instance.new("ParticleEmitter")
+				emitter.Name = "PoisonEffect"
+				emitter.Color = ColorSequence.new(
+					Color3.fromRGB(40, 180, 40),
+					Color3.fromRGB(80, 255, 80)
+				)
+				emitter.Size = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.1),
+					NumberSequenceKeypoint.new(0.5, 0.25),
+					NumberSequenceKeypoint.new(1, 0.05),
+				})
+				emitter.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.4),
+					NumberSequenceKeypoint.new(0.7, 0.7),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				emitter.Lifetime = NumberRange.new(0.8, 1.6)
+				emitter.Rate = 6
+				emitter.Speed = NumberRange.new(0.3, 1.0)
+				emitter.SpreadAngle = Vector2.new(180, 180)
+				emitter.Acceleration = Vector3.new(0, 2, 0)
+				emitter.RotSpeed = NumberRange.new(-60, 60)
+				emitter.Parent = rootPart
+				poisonEmitter = emitter
+			end
+		else
+			if poisonEmitter then
+				poisonEmitter:Destroy()
+				poisonEmitter = nil
+			end
+		end
+	end
+
 	-- Auto-expand logic
 
 	local isWarning = hungerRatio  < WARN
 		or thirstRatio  < WARN
 		or fatigueRatio < WARN
+		or bloodRatio   < bloodWarn
+		or poisonRatio  > poisonWarn
 		or isBleeding
 		or isPoisoned
 

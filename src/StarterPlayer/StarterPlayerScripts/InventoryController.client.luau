@@ -142,11 +142,13 @@ panelStroke.Color     = Color3.fromRGB(55, 65, 95)
 panelStroke.Thickness = 1
 panelStroke.Parent    = panel
 
--- Header
+-- Header (also acts as drag handle for moving the panel)
 local header = Instance.new("Frame")
+header.Name             = "Header"
 header.Size             = UDim2.new(1, 0, 0, 40)
 header.BackgroundColor3 = BG2
 header.BorderSizePixel  = 0
+header.Active           = true
 header.Parent           = panel
 addCorner(header, 8)
 local hMask = Instance.new("Frame")
@@ -155,6 +157,37 @@ hMask.Position         = UDim2.new(0, 0, 1, -8)
 hMask.BackgroundColor3 = BG2
 hMask.BorderSizePixel  = 0
 hMask.Parent           = header
+
+-- Panel dragging via header
+local panelDragging  = false
+local panelDragStart = Vector2.new(0, 0)
+local panelPosStart  = Vector2.new(0, 0)
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		panelDragging  = true
+		panelDragStart = Vector2.new(input.Position.X, input.Position.Y)
+		-- Snapshot the actual screen position (AbsolutePosition) so Scale doesn't cause a jump.
+		local ap = panel.AbsolutePosition
+		panelPosStart  = Vector2.new(ap.X, ap.Y)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if not panelDragging then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseMovement
+		and input.UserInputType ~= Enum.UserInputType.Touch then return end
+	local delta = Vector2.new(input.Position.X, input.Position.Y) - panelDragStart
+	panel.Position = UDim2.new(0, panelPosStart.X + delta.X, 0, panelPosStart.Y + delta.Y)
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		panelDragging = false
+	end
+end)
 
 makeLabel(header, {
 	Size             = UDim2.new(1, -50, 1, 0),
