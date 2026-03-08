@@ -12,7 +12,14 @@ return {
 		PoisonIcon = "rbxassetid://79915215295672",
 		FatigueIcon = "rbxassetid://133260095006377",
 		BrownMushroomIcon = "rbxassetid://136772121686318",
+		TwigIcon = "rbxassetid://107328542304066",
+		RockIcon = "rbxassetid://72036406518711",
+		CampfireIcon = "rbxassetid://79851233339992",
 		Vignette = "rbxassetid://117281807378470",
+	},
+	Animations = {
+		Eating = "rbxassetid://113331921997993",
+		Sitting = "rbxassetid://101839416066342",
 	},
 	Sounds = {
 		Breathing = "rbxassetid://109256307915148",

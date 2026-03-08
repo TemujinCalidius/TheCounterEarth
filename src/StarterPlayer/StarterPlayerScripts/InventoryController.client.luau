@@ -37,6 +37,9 @@ local swapSlotsRemote       = remotes:WaitForChild("SwapSlots")          :: Remo
 local dropItemRemote        = remotes:WaitForChild("DropItem")           :: RemoteEvent
 local pinToSpecificSlotRemote = remotes:WaitForChild("PinToSpecificSlot") :: RemoteEvent
 
+local startPlacementEvent = ReplicatedStorage
+	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
+
 local player = Players.LocalPlayer
 
 -- ── Style ─────────────────────────────────────────────────────────────────
@@ -915,19 +918,30 @@ local function selectSlot(n: number)
 	detailSlotLabel.Text    = "Slot " .. n .. " of " .. getMaxSlots()
 
 	local isConsumable      = def.onConsume ~= nil
+	local isPlaceable       = def.category == "placeable"
 	local isTool            = def.category == "tool" or def.category == "weapon"
-	detailUseBtn.Visible    = isConsumable
-	detailHotbarBtn.Visible = isTool or isConsumable
+	detailUseBtn.Visible    = isConsumable or isPlaceable
+	detailUseBtn.Text       = isPlaceable and "PLACE" or "USE"
+	detailHotbarBtn.Visible = isTool or isConsumable or isPlaceable
 	detailSplitBtn.Visible  = qty > 1
 	detailDropBtn.Visible   = true
 end
 
 detailUseBtn.Activated:Connect(function()
 	local itemId = getSlotItemId(selectedSlot)
-	if itemId ~= "" then
+	if itemId == "" then return end
+	local def = ItemRegistry.get(itemId)
+	if not def then return end
+
+	if def.category == "placeable" then
+		startPlacementEvent:Fire(itemId)
+		panel.Visible = false
+		return
+	end
+
+	if def.onConsume then
 		useItemRemote:FireServer(itemId)
-		local def = ItemRegistry.get(itemId)
-		if def and def.onConsume and not ItemRegistry.hasTag(def, "drink") then
+		if not ItemRegistry.hasTag(def, "drink") then
 			chewingSound:Play()
 			task.delay(1.5, function()
 				chewingSound:Stop()

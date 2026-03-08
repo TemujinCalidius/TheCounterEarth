@@ -22,6 +22,8 @@ local hotbarAttackRemote      = remotesFolder:WaitForChild("HotbarAttackRequest"
 local unpinFromHotbarRemote   = remotesFolder:WaitForChild("UnpinFromHotbar")
 local swapHotbarSlotsRemote   = remotesFolder:WaitForChild("SwapHotbarSlots")
 local useItemRemote           = remotesFolder:WaitForChild("UseItem")
+local startPlacementEvent     = ReplicatedStorage
+	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
 local hotbarSlotCount = math.clamp(math.floor(tonumber(Config.Hotbar and Config.Hotbar.Slots) or 9), 1, 9)
 
 -- Expanded survival panel dimensions
@@ -750,11 +752,19 @@ local function setSprint(value: boolean)
 end
 
 local function tryAttackWithEquippedItem()
+	if player:GetAttribute("IsPlacementMode") == true then return end
 	if equippedSlot < 1 or equippedSlot > hotbarSlotCount then return end
 	local itemValue = player:GetAttribute(getSlotAttributeName(equippedSlot))
 	if type(itemValue) ~= "string" or itemValue == "" then return end
 
 	local def = ItemRegistry.get(itemValue)
+
+	-- Placeable: enter placement mode instead of attacking
+	if def and def.category == "placeable" then
+		startPlacementEvent:Fire(itemValue)
+		return
+	end
+
 	if def and def.onConsume then
 		if isEating then return end
 		isEating = true
@@ -764,6 +774,26 @@ local function tryAttackWithEquippedItem()
 			chewingSound:Play()
 		end
 
+		-- Play eating animation
+		local eatTrack: AnimationTrack? = nil
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			local animator = hum:FindFirstChildOfClass("Animator")
+			if animator then
+				local anim = Instance.new("Animation")
+				anim.AnimationId = AssetIds.Animations.Eating
+				local ok, track = pcall(function()
+					return animator:LoadAnimation(anim)
+				end)
+				if ok and track then
+					eatTrack = track
+					eatTrack.Priority = Enum.AnimationPriority.Action
+					eatTrack:Play()
+				end
+			end
+		end
+
 		-- Wait the full eat duration, then consume
 		task.spawn(function()
 			task.wait(EAT_CHANNEL_TIME)
@@ -771,6 +801,7 @@ local function tryAttackWithEquippedItem()
 
 			useItemRemote:FireServer(itemValue)
 			chewingSound:Stop()
+			if eatTrack then eatTrack:Stop() end
 			isEating = false
 		end)
 		return
@@ -780,6 +811,8 @@ local function tryAttackWithEquippedItem()
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if player:GetAttribute("IsPlacementMode") == true then return end
+
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		tryAttackWithEquippedItem()
 		return
@@ -796,6 +829,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	local slotNum = numKeys[input.KeyCode]
 	if slotNum then
 		hotbarEquipRemote:FireServer(slotNum)
+
+		-- Placeables: immediately enter placement mode on key press
+		local slotItem = player:GetAttribute(getSlotAttributeName(slotNum))
+		if type(slotItem) == "string" and slotItem ~= "" then
+			local slotDef = ItemRegistry.get(slotItem)
+			if slotDef and slotDef.category == "placeable" then
+				startPlacementEvent:Fire(slotItem)
+			end
+		end
 	end
 end)
 
@@ -917,8 +959,6 @@ local COLOR_WARN_POISON    = Color3.fromRGB(180, 200,  40)
 
 -- Badge pulse timer
 local badgePulseTime = 0
-local bleedEmitter: ParticleEmitter? = nil
-local poisonEmitter: ParticleEmitter? = nil
 
 -- ---------------------------------------------------------------------------
 -- RenderStepped -- update all HUD elements
@@ -1019,80 +1059,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		badgePulseTime = 0
 	end
 
-	-- Particle effects on character (driven by bar levels)
-
-	local character = player.Character
-	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-
-	if rootPart then
-		if isBleeding then
-			if not bleedEmitter or bleedEmitter.Parent ~= rootPart then
-				if bleedEmitter then bleedEmitter:Destroy() end
-				local emitter = Instance.new("ParticleEmitter")
-				emitter.Name = "BleedEffect"
-				emitter.Texture = normalizeAssetId(AssetIds.Images.BloodIcon)
-				emitter.Color = ColorSequence.new(Color3.fromRGB(180, 20, 20))
-				emitter.Size = NumberSequence.new({
-					NumberSequenceKeypoint.new(0, 0.25),
-					NumberSequenceKeypoint.new(1, 0.1),
-				})
-				emitter.Transparency = NumberSequence.new({
-					NumberSequenceKeypoint.new(0, 0.2),
-					NumberSequenceKeypoint.new(0.8, 0.6),
-					NumberSequenceKeypoint.new(1, 1),
-				})
-				emitter.Lifetime = NumberRange.new(0.6, 1.2)
-				emitter.Rate = 8
-				emitter.Speed = NumberRange.new(0.5, 1.5)
-				emitter.SpreadAngle = Vector2.new(30, 30)
-				emitter.Acceleration = Vector3.new(0, -8, 0)
-				emitter.RotSpeed = NumberRange.new(-30, 30)
-				emitter.Parent = rootPart
-				bleedEmitter = emitter
-			end
-		else
-			if bleedEmitter then
-				bleedEmitter:Destroy()
-				bleedEmitter = nil
-			end
-		end
-
-		if poisonRatio > 0 then
-			if not poisonEmitter or poisonEmitter.Parent ~= rootPart then
-				if poisonEmitter then poisonEmitter:Destroy() end
-				local emitter = Instance.new("ParticleEmitter")
-				emitter.Name = "PoisonEffect"
-				emitter.Color = ColorSequence.new(
-					Color3.fromRGB(40, 180, 40),
-					Color3.fromRGB(80, 255, 80)
-				)
-				emitter.Size = NumberSequence.new({
-					NumberSequenceKeypoint.new(0, 0.1),
-					NumberSequenceKeypoint.new(0.5, 0.25),
-					NumberSequenceKeypoint.new(1, 0.05),
-				})
-				emitter.Transparency = NumberSequence.new({
-					NumberSequenceKeypoint.new(0, 0.4),
-					NumberSequenceKeypoint.new(0.7, 0.7),
-					NumberSequenceKeypoint.new(1, 1),
-				})
-				emitter.Lifetime = NumberRange.new(0.8, 1.6)
-				emitter.Rate = 6
-				emitter.Speed = NumberRange.new(0.3, 1.0)
-				emitter.SpreadAngle = Vector2.new(180, 180)
-				emitter.Acceleration = Vector3.new(0, 2, 0)
-				emitter.RotSpeed = NumberRange.new(-60, 60)
-				emitter.Parent = rootPart
-				poisonEmitter = emitter
-			end
-		else
-			if poisonEmitter then
-				poisonEmitter:Destroy()
-				poisonEmitter = nil
-			end
-		end
-	end
-
 	-- Auto-expand logic
 
 	local isWarning = hungerRatio  < WARN
@@ -1141,4 +1107,45 @@ RunService.RenderStepped:Connect(function(deltaTime)
 	if heartbeatSound.SoundId ~= "" and not heartbeatSound.IsPlaying then heartbeatSound:Play() end
 	heartbeatSound.Volume        = smooth(heartbeatSound.Volume,        heartbeatTargetVolume, 7, deltaTime)
 	heartbeatSound.PlaybackSpeed = smooth(heartbeatSound.PlaybackSpeed, heartbeatTargetSpeed,  7, deltaTime)
+end)
+
+-- ---------------------------------------------------------------------------
+-- Campfire sit animation — server sets SittingAtCampfire attribute
+-- ---------------------------------------------------------------------------
+
+local sitTrack: AnimationTrack? = nil
+
+local function startSitAnimation()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	local animator = hum:FindFirstChildOfClass("Animator")
+	if not animator then return end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = AssetIds.Animations.Sitting
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(anim)
+	end)
+	if ok and track then
+		sitTrack = track
+		sitTrack.Priority = Enum.AnimationPriority.Action
+		sitTrack.Looped = true
+		sitTrack:Play()
+	end
+end
+
+local function stopSitAnimation()
+	if sitTrack then
+		sitTrack:Stop()
+		sitTrack = nil
+	end
+end
+
+player:GetAttributeChangedSignal("SittingAtCampfire"):Connect(function()
+	if player:GetAttribute("SittingAtCampfire") == true then
+		startSitAnimation()
+	else
+		stopSitAnimation()
+	end
 end)

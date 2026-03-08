@@ -1,8 +1,8 @@
-# The Colony
+# The Counter Earth
 
 A survival/roleplay framework for Roblox, built as a complete foundation that world builders can extend with their own maps, stories, and gameplay.
 
-The Colony ships as a ready-to-run Roblox experience with core survival mechanics, inventory management, and player progression systems already wired up. Creators drop it into their world, customize the config files, and focus on building the experience — not the plumbing.
+The Counter Earth ships as a ready-to-run Roblox experience with core survival mechanics, inventory management, and player progression systems already wired up. Creators drop it into their world, customize the config files, and focus on building the experience — not the plumbing.
 
 ## What's Included
 
@@ -12,6 +12,7 @@ The Colony ships as a ready-to-run Roblox experience with core survival mechanic
 - **Slot-Based Inventory** — weight-limited grid inventory with stacking, splitting, and crafting
 - **Hotbar** — 9-slot quick-access bar (keys 1-9) with drag-to-reorder
 - **Drag-and-Drop** — drag items between inventory slots, from inventory to hotbar, or drop to the world
+- **Placeable Items** — ghost preview placement mode with range validation, campfire sitting with health/energy regen
 - **Tool Pickup** — ProximityPrompt-based world item pickup with auto-hotbar assignment
 - **HUD** — health/energy/survival bars, hotbar display, vignette and audio feedback
 - **Persistence** — full DataStore save/load for all player data (credits, stats, inventory, hotbar)
@@ -20,7 +21,7 @@ The Colony ships as a ready-to-run Roblox experience with core survival mechanic
 
 ## For World Builders
 
-The Colony is designed as a starting point. The core systems handle:
+The Counter Earth is designed as a starting point. The core systems handle:
 
 - Player state, survival mechanics, and data persistence
 - Inventory and item management with weight/stack limits
@@ -71,8 +72,8 @@ CHANGELOG.md                  -- Version history
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/TemujinCalidius/TheColony.git
-   cd TheColony
+   git clone https://github.com/TemujinCalidius/TheCounterEarth.git
+   cd TheCounterEarth
    ```
 
 2. Start the Rojo sync server:

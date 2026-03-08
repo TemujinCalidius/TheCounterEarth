@@ -1,4 +1,4 @@
-# The Colony - System Architecture
+# The Counter Earth - System Architecture
 
 ## Project Structure
 

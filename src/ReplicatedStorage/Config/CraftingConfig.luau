@@ -10,14 +10,14 @@
 return {
 	Recipes = {
 		{
-			id          = "twig_axe",
-			displayName = "Twig Axe",
+			id          = "stone_axe",
+			displayName = "Stone Axe",
 			description = "A crude axe. Needed to chop wood.",
 			ingredients = {
 				{ itemId = "twig",   qty = 3 },
-				{ itemId = "pebble", qty = 2 },
+				{ itemId = "rock",   qty = 2 },
 			},
-			output = { itemId = "twig_axe", qty = 1 },
+			output = { itemId = "stone_axe", qty = 1 },
 		},
 		{
 			id          = "stone_pickaxe",
@@ -25,19 +25,19 @@ return {
 			description = "A rough pickaxe. Mines soft rock.",
 			ingredients = {
 				{ itemId = "twig",   qty = 2 },
-				{ itemId = "pebble", qty = 4 },
+				{ itemId = "rock",   qty = 4 },
 			},
 			output = { itemId = "stone_pickaxe", qty = 1 },
 		},
 		{
-			id          = "twig_knife",
-			displayName = "Twig Knife",
-			description = "A shard bound to a twig. Harvests fiber and hide.",
+			id          = "stone_knife",
+			displayName = "Stone Knife",
+			description = "A shard bound to a twig. Harvests reed and hide.",
 			ingredients = {
 				{ itemId = "twig",   qty = 2 },
-				{ itemId = "pebble", qty = 2 },
+				{ itemId = "rock",   qty = 2 },
 			},
-			output = { itemId = "twig_knife", qty = 1 },
+			output = { itemId = "stone_knife", qty = 1 },
 		},
 		{
 			id          = "campfire",
@@ -45,7 +45,7 @@ return {
 			description = "A basic campfire. Cook food and rest nearby.",
 			ingredients = {
 				{ itemId = "twig",   qty = 5 },
-				{ itemId = "pebble", qty = 3 },
+				{ itemId = "rock",   qty = 3 },
 			},
 			output = { itemId = "campfire", qty = 1 },
 		},
@@ -54,19 +54,19 @@ return {
 			displayName = "Bedroll",
 			description = "A rough bedroll. Sets your respawn point.",
 			ingredients = {
-				{ itemId = "fiber",  qty = 8 },
+				{ itemId = "reed",   qty = 8 },
 			},
 			output = { itemId = "bedroll", qty = 1 },
 		},
 		{
-			id          = "satchel_cloth",
-			displayName = "Cloth Satchel",
-			description = "A small cloth bag. Basic backpack storage.",
+			id          = "satchel_reed",
+			displayName = "Reed Satchel",
+			description = "A woven reed satchel. Basic backpack storage.",
 			ingredients = {
-				{ itemId = "fiber",  qty = 12 },
+				{ itemId = "reed",   qty = 12 },
 				{ itemId = "twig",   qty = 2 },
 			},
-			output = { itemId = "satchel_cloth", qty = 1 },
+			output = { itemId = "satchel_reed", qty = 1 },
 		},
 	},
 }

@@ -211,6 +211,17 @@ local function syncEquippedSlotFromCharacter(player: Player)
 
 	local equippedTool = character:FindFirstChildOfClass("Tool")
 	if not equippedTool then
+		-- Keep the slot selected if it's a placeable (no physical tool)
+		local currentSlot = math.floor(tonumber(player:GetAttribute("HotbarEquippedSlot")) or 0)
+		if currentSlot >= 1 and currentSlot <= HOTBAR_SIZE then
+			local slotItem = sanitizeItemId(player:GetAttribute(slotAttributeName(currentSlot)))
+			if slotItem ~= "" then
+				local def = ItemRegistry.get(slotItem)
+				if def and def.category == "placeable" then
+					return -- keep placeable slot selected
+				end
+			end
+		end
 		setEquippedSlot(player, 0)
 		return
 	end
@@ -390,6 +401,14 @@ hotbarEquipRemote.OnServerEvent:Connect(function(player, slot)
 	if equippedSlot == slot then
 		humanoid:UnequipTools()
 		setEquippedSlot(player, 0)
+		return
+	end
+
+	-- Placeables: just select the slot, don't equip a physical tool
+	local def = ItemRegistry.get(itemId)
+	if def and def.category == "placeable" then
+		humanoid:UnequipTools()
+		setEquippedSlot(player, slot)
 		return
 	end
 

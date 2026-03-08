@@ -1,7 +1,33 @@
-# The Colony - Changelog
+# The Counter Earth - Changelog
 
 All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
+
+---
+
+## [0.6.0] - 2026-03-08
+
+### Added
+- **Campfire placement system** — ghost preview placement mode for placeable items. Clone ghost follows mouse cursor with green/red validity coloring based on range. Left-click to place, right-click/Escape to cancel
+- **PlacementController** (`PlacementController.client.luau`) — new client script handling ghost preview, raycasting, and placement input
+- **Server placement validation** — `PlaceItem` remote in InventoryService validates item category, CFrame type, range (≤20 studs), and 1s cooldown before spawning
+- **Ghost template publishing** — server auto-clones placeable Models from `ServerStorage/ItemTools` to `ReplicatedStorage/PlaceableGhosts` at startup with effects disabled
+- **Campfire sitting system** — players auto-sit when idle ≥3 seconds within 10 studs of a placed campfire. Sit animation plays via `SittingAtCampfire` attribute
+- **Campfire regen** — health regen (2 HP/s) and energy regen (5 energy/s) while sitting at campfire. Energy regen works even when hungry/thirsty
+- **Campfire auto-cleanup** — placed campfires auto-delete after 10 minutes with no player nearby (`_lastOccupiedTime` attribute tracking)
+- **Instant hotbar placement** — pressing a hotbar number key for a placeable item immediately enters placement mode (no extra click needed)
+- **Inventory "PLACE" button** — placeable items show a "PLACE" button in inventory detail panel instead of "USE"
+- **PlaceableModels folder** — `ServerStorage/PlaceableModels/init.meta.json` for Rojo asset persistence
+- **Sitting animation** — R15 sit animation (`rbxassetid://101839416066342`) in AssetIds
+- **Campfire config** — `GameplayConfig.Campfire` section with sit radius, idle time, regen rates, placement range, and inactive lifetime
+
+### Changed
+- `ToolInventoryService` HotbarEquipRequest now handles placeables without equipping a physical Tool (highlights slot only)
+- `syncEquippedSlotFromCharacter` preserves placeable slot selection instead of resetting to 0
+- `InventoryController` detail panel shows "PLACE" for placeables and fires `StartPlacement` BindableEvent
+- `HudController` guards all input during placement mode (`IsPlacementMode` attribute)
+- `PlayerStateService` heartbeat loop now includes campfire proximity detection, idle tracking, sit/regen logic, and auto-cleanup sweep
+- `PinToHotbar` category gate updated to allow placeables
 
 ---
 

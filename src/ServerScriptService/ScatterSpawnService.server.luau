@@ -1,5 +1,5 @@
 -- ScatterSpawnService.server.luau
--- Spawns floor-scatter items (twig, pebble, mushroom) in the
+-- Spawns floor-scatter items (twig, rock, mushroom) in the
 -- world as Models tagged with _ScatterItem = itemId.
 -- InventoryService handles the pickup prompts automatically.
 --
@@ -29,6 +29,7 @@ type ScatterDef = {
 	respawnMax: number,
 	color:      Color3,
 	size:       Vector3,
+	templates:  { string }?,  -- optional list of ScatterModel names to pick from randomly
 }
 
 local SCATTER: { ScatterDef } = {
@@ -39,14 +40,16 @@ local SCATTER: { ScatterDef } = {
 		respawnMax = 60,
 		color      = Color3.fromRGB(101, 67, 33),
 		size       = Vector3.new(0.15, 0.15, 1.4),
+		templates  = { "twig_1" },
 	},
 	{
-		itemId     = "pebble",
+		itemId     = "rock",
 		maxCount   = 12,
 		respawnMin = 30,
 		respawnMax = 90,
 		color      = Color3.fromRGB(140, 140, 140),
 		size       = Vector3.new(0.42, 0.3, 0.46),
+		templates  = { "rock_1", "rock_2", "rock_3" },
 	},
 	{
 		itemId     = "BrownMushroom",
@@ -121,7 +124,12 @@ local function createScatterModel(cfg: ScatterDef): Model
 		* CFrame.Angles(0, math.random() * math.pi * 2, 0)
 
 	-- Try to clone a Studio-placed template from ServerStorage/ScatterModels
-	local template = findTemplate(cfg.itemId)
+	-- If templates list is provided, pick a random variant; fall back to itemId
+	local templateName = cfg.itemId
+	if cfg.templates and #cfg.templates > 0 then
+		templateName = cfg.templates[math.random(1, #cfg.templates)]
+	end
+	local template = findTemplate(templateName)
 	if template then
 		local model: Model
 

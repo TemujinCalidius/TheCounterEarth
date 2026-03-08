@@ -50,6 +50,39 @@ local splitStackRemote        = makeRemote("SplitStack")
 local swapSlotsRemote         = makeRemote("SwapSlots")
 local swapHotbarSlotsRemote   = makeRemote("SwapHotbarSlots")
 local dropItemRemote          = makeRemote("DropItem")
+local placeItemRemote         = makeRemote("PlaceItem")
+
+-- ── Publish ghost-ready templates to ReplicatedStorage for client preview ──
+
+local function publishPlaceableGhosts()
+	local ghostsFolder = Instance.new("Folder")
+	ghostsFolder.Name = "PlaceableGhosts"
+	ghostsFolder.Parent = ReplicatedStorage
+
+	local itemToolsFolder = ServerStorage:FindFirstChild("ItemTools")
+	if not itemToolsFolder then return end
+
+	for _, template in ipairs(itemToolsFolder:GetChildren()) do
+		if template:IsA("Model") then
+			local def = ItemRegistry.get(template.Name)
+			if def and def.category == "placeable" then
+				local ghost = template:Clone()
+				for _, desc in ipairs(ghost:GetDescendants()) do
+					if desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("ParticleEmitter") then
+						desc.Enabled = false
+					elseif desc:IsA("PointLight") or desc:IsA("SpotLight") or desc:IsA("SurfaceLight") then
+						desc.Enabled = false
+					elseif desc:IsA("Sound") then
+						desc.Playing = false
+						desc.PlayOnRemove = false
+					end
+				end
+				ghost.Parent = ghostsFolder
+			end
+		end
+	end
+end
+publishPlaceableGhosts()
 
 -- ── Consume-effect BindableEvent (created by PlayerStateService) ──────────
 local consumeEffectEvent: BindableEvent =
@@ -524,7 +557,7 @@ pinToHotbarRemote.OnServerEvent:Connect(function(player, rawItemId)
 	if itemId == "" then return end
 	local def = ItemRegistry.get(itemId)
 	if not def then return end
-	if def.category ~= "tool" and def.category ~= "weapon" and not def.onConsume then return end
+	if def.category ~= "tool" and def.category ~= "weapon" and def.category ~= "placeable" and not def.onConsume then return end
 	if getTotalQty(player, itemId) < 1 then return end
 
 	local slot = findFreeHotbarSlot(player)
@@ -680,11 +713,73 @@ dropItemRemote.OnServerEvent:Connect(function(player, rawSlot, rawQty)
 	createLootBag(player, { { itemId = itemId, qty = qty } })
 end)
 
+-- ── PlaceItem ─────────────────────────────────────────────────────────────
+
+local PLACE_MAX_RANGE = (GameplayConfig.Campfire and GameplayConfig.Campfire.PlacementMaxRange) or 20
+local PLACE_COOLDOWN  = 1.0
+local lastPlaceTime: { [Player]: number } = {}
+
+placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
+	local itemId = sanitizeItemId(rawItemId)
+	if itemId == "" then return end
+	if typeof(rawCFrame) ~= "CFrame" then return end
+
+	local def = ItemRegistry.get(itemId)
+	if not def or def.category ~= "placeable" then return end
+
+	-- Cooldown
+	local now = os.clock()
+	if lastPlaceTime[player] and now - lastPlaceTime[player] < PLACE_COOLDOWN then return end
+	lastPlaceTime[player] = now
+
+	-- Range check
+	local character = player.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	if (rawCFrame.Position - rootPart.Position).Magnitude > PLACE_MAX_RANGE then return end
+
+	-- Remove from inventory
+	if not removeQty(player, itemId, 1) then return end
+	cleanOrphanedHotbarPins(player)
+
+	-- Clone from ItemTools
+	local itemToolsFolder = ServerStorage:FindFirstChild("ItemTools")
+	local template = itemToolsFolder and itemToolsFolder:FindFirstChild(itemId)
+	if not template or not template:IsA("Model") then return end
+
+	local placed = template:Clone()
+	placed:SetAttribute("_PlacedItem", itemId)
+	placed:SetAttribute("_PlacedBy", player.UserId)
+	placed:SetAttribute("_lastOccupiedTime", os.clock())
+
+	-- Anchor all parts
+	for _, part in ipairs(placed:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+		end
+	end
+
+	-- Enable fire/sound effects
+	for _, desc in ipairs(placed:GetDescendants()) do
+		if desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("ParticleEmitter") then
+			desc.Enabled = true
+		elseif desc:IsA("PointLight") or desc:IsA("SpotLight") or desc:IsA("SurfaceLight") then
+			desc.Enabled = true
+		elseif desc:IsA("Sound") then
+			desc:Play()
+		end
+	end
+
+	placed:PivotTo(rawCFrame)
+	placed.Parent = Workspace
+end)
+
 -- ── Player lifecycle ──────────────────────────────────────────────────────
 
 Players.PlayerAdded:Connect(initPlayer)
 Players.PlayerRemoving:Connect(function(player)
 	lastEatTime[player] = nil
+	lastPlaceTime[player] = nil
 end)
 for _, player in ipairs(Players:GetPlayers()) do
 	initPlayer(player)

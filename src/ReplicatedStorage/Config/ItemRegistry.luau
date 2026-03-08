@@ -73,19 +73,19 @@ Items.twig = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "primitive", "wood", "scatter" },
-	icon = "",
+	icon = "rbxassetid://107328542304066",
 }
 
-Items.pebble = {
-	id = "pebble",
-	displayName = "Pebble",
-	description = "A small smooth stone. The other half of every primitive tool.",
+Items.rock = {
+	id = "rock",
+	displayName = "Rock",
+	description = "A small stone. The other half of every primitive tool.",
 	stackMax = 20,
 	weight = 0.2,
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "primitive", "stone", "scatter" },
-	icon = "",
+	icon = "rbxassetid://72036406518711",
 }
 
 Items.BrownMushroom = {
@@ -105,13 +105,13 @@ Items.BrownMushroom = {
 }
 
 -- ---------------------------------------------------------------------------
--- HAND CRAFTED TOOLS — no station, recipes use twigs + pebbles
+-- HAND CRAFTED TOOLS — no station, recipes use twigs + rocks
 -- ---------------------------------------------------------------------------
 
-Items.twig_axe = {
-	id = "twig_axe",
-	displayName = "Twig Axe",
-	description = "A crude axe lashed together with plant fiber. Barely holds together.",
+Items.stone_axe = {
+	id = "stone_axe",
+	displayName = "Stone Axe",
+	description = "A crude axe lashed together with twigs and rocks. Barely holds together.",
 	stackMax = 5,
 	weight = 0.4,
 	slotSize = { w = 1, h = 2 },
@@ -144,9 +144,9 @@ Items.stone_pickaxe = {
 	icon = "rbxassetid://6b2a2ece911bf06b09bbed2e00001630",
 }
 
-Items.twig_knife = {
-	id = "twig_knife",
-	displayName = "Twig Knife",
+Items.stone_knife = {
+	id = "stone_knife",
+	displayName = "Stone Knife",
 	description = "A splintered rock bound to a twig. Barely a knife, but it works.",
 	stackMax = 5,
 	weight = 0.2,
@@ -156,7 +156,7 @@ Items.twig_knife = {
 	tool = {
 		kind = "knife",
 		tier = 0,
-		harvestTags = { "fiber", "herb", "hide" },
+		harvestTags = { "reed", "herb", "hide" },
 		damage = 3,
 	},
 	tags = { "tool", "knife", "weapon", "tier0", "primitive" },
@@ -176,13 +176,13 @@ Items.campfire = {
 	slotSize = { w = 2, h = 2 },
 	category = "placeable",
 	tags = { "placeable", "crafting_station", "campfire", "tier0" },
-	icon = "",
+	icon = "rbxassetid://79851233339992",
 }
 
 Items.bedroll = {
 	id = "bedroll",
 	displayName = "Bedroll",
-	description = "A rough bedroll made from fiber. Sets your respawn point.",
+	description = "A rough bedroll made from reed. Sets your respawn point.",
 	stackMax = 1,
 	weight = 1.0,
 	slotSize = { w = 2, h = 3 },
@@ -219,15 +219,15 @@ Items.stone = {
 	icon = "",
 }
 
-Items.fiber = {
-	id = "fiber",
-	displayName = "Fiber",
-	description = "Plant fiber. Used in rope, cloth, and padding.",
+Items.reed = {
+	id = "reed",
+	displayName = "Reed",
+	description = "Dried reed. Used in weaving, bedding, and binding.",
 	stackMax = 20,
 	weight = 0.1,
 	slotSize = { w = 1, h = 1 },
 	category = "material",
-	tags = { "material", "fiber", "tier1" },
+	tags = { "material", "reed", "tier1" },
 	icon = "",
 }
 
@@ -339,7 +339,7 @@ Items.antidote = {
 Items.coin_credits = {
 	id = "coin_credits",
 	displayName = "Credits",
-	description = "The default colony currency.",
+	description = "The default currency.",
 	stackMax = 9999,
 	weight = 0.001,
 	slotSize = { w = 1, h = 1 },
@@ -422,10 +422,10 @@ Items.pouch_standard = {
 -- BACKPACKS
 -- ---------------------------------------------------------------------------
 
-Items.satchel_cloth = {
-	id = "satchel_cloth",
-	displayName = "Cloth Satchel",
-	description = "A small cloth bag. Basic storage beyond your pockets.",
+Items.satchel_reed = {
+	id = "satchel_reed",
+	displayName = "Reed Satchel",
+	description = "A woven reed satchel. Basic storage beyond your pockets.",
 	stackMax = 1,
 	weight = 0.3,
 	slotSize = { w = 2, h = 2 },

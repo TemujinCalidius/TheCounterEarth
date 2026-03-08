@@ -34,6 +34,15 @@ return {
 		Slots = 9,
 	},
 
+	Campfire = {
+		SitRadius = 10,                -- studs: auto-sit detection range
+		IdleTimeToSit = 3,             -- seconds standing still before auto-sit
+		HealthRegenPerSecond = 2,
+		EnergyRegenPerSecond = 5,
+		PlacementMaxRange = 20,        -- studs from player
+		InactiveLifetimeSeconds = 600, -- 10 min with no player nearby → auto-delete
+	},
+
 	Inventory = {
 		-- Base carry weight with no backpack equipped (just pockets), in kg.
 		BasePocketWeight = 5,

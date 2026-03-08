@@ -94,9 +94,30 @@ type PlayerState = {
 	bleedStacks: number,       -- number of active bleed wounds (0 = not bleeding)
 	bleedStartTime: number?,   -- os.time() when most recent stack was added; nil = not bleeding
 	poisonStartTime: number?,  -- os.time() when poisoned started; nil = not poisoned
+	campfireIdleTime: number,  -- seconds standing still (resets on movement)
+	sittingAtCampfire: boolean, -- true while auto-sitting near a campfire
 }
 
 local playerStates: { [Player]: PlayerState } = {}
+
+-- ── Campfire config ─────────────────────────────────────────────────────────
+local CAMPFIRE_SIT_RADIUS      = (Config.Campfire and Config.Campfire.SitRadius) or 10
+local CAMPFIRE_IDLE_TO_SIT     = (Config.Campfire and Config.Campfire.IdleTimeToSit) or 3
+local CAMPFIRE_HEALTH_REGEN    = (Config.Campfire and Config.Campfire.HealthRegenPerSecond) or 2
+local CAMPFIRE_ENERGY_REGEN    = (Config.Campfire and Config.Campfire.EnergyRegenPerSecond) or 5
+local CAMPFIRE_INACTIVE_LIFE   = (Config.Campfire and Config.Campfire.InactiveLifetimeSeconds) or 600
+
+local function isNearPlacedCampfire(position: Vector3): boolean
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("Model") and obj:GetAttribute("_PlacedItem") then
+			local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+			if primary and (primary.Position - position).Magnitude <= CAMPFIRE_SIT_RADIUS then
+				return true
+			end
+		end
+	end
+	return false
+end
 
 local function round1(value: number): number
 	return math.round(value * 10) / 10
@@ -139,6 +160,20 @@ local function sanitizeItemId(value: any): string
 	return normalized
 end
 
+-- Maps old item IDs to new ones for DataStore migration.
+-- Add entries here when renaming items; old saves will load with the new ID.
+local ITEM_RENAMES: { [string]: string } = {
+	pebble        = "rock",
+	fiber         = "reed",
+	twig_axe      = "stone_axe",
+	twig_knife    = "stone_knife",
+	satchel_cloth = "satchel_reed",
+}
+
+local function migrateItemId(id: string): string
+	return ITEM_RENAMES[id] or id
+end
+
 local function emptyInventory(): { slots: { string }, equippedSlot: number }
 	local slots = table.create(hotbarSlotCount)
 	for slot = 1, hotbarSlotCount do
@@ -168,7 +203,7 @@ local function decodeInventory(raw: any): { slots: { string }, equippedSlot: num
 			if value == nil then
 				value = slotsRaw[tostring(slot)]
 			end
-			inventory.slots[slot] = sanitizeItemId(value)
+			inventory.slots[slot] = migrateItemId(sanitizeItemId(value))
 		end
 	end
 
@@ -242,7 +277,7 @@ local function decodeInvSlots(raw: any): { { itemId: string, qty: number } }
 				and type(entry.itemId) == "string"
 				and type(entry.qty) == "number"
 			then
-				local clean = sanitizeItemId(entry.itemId)
+				local clean = migrateItemId(sanitizeItemId(entry.itemId))
 				if clean ~= "" and entry.qty > 0 then
 					table.insert(result, { itemId = clean, qty = math.floor(entry.qty + 0.5) })
 				end
@@ -252,7 +287,7 @@ local function decodeInvSlots(raw: any): { { itemId: string, qty: number } }
 		-- Migrate old Inv_<itemId> dict format.
 		for itemId, qty in pairs(raw.items) do
 			if type(itemId) == "string" and type(qty) == "number" and qty > 0 then
-				local clean = sanitizeItemId(itemId)
+				local clean = migrateItemId(sanitizeItemId(itemId))
 				if clean ~= "" then
 					table.insert(result, { itemId = clean, qty = math.floor(qty + 0.5) })
 				end
@@ -518,12 +553,89 @@ local function setPoison(player: Player, state: PlayerState, value: number)
 	setSurvivalStat(player, state, "poison", StatsConfig.AttributeNames.Poison, value, StatsConfig.Poison.Max)
 end
 
+-- ── Particle effects (server-side so all players can see them) ───────────
+
+local function getCharacterRoot(player: Player): BasePart?
+	local character = player.Character
+	return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+local function attachBleedEffect(player: Player)
+	local root = getCharacterRoot(player)
+	if not root or root:FindFirstChild("BleedEffect") then return end
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Name = "BleedEffect"
+	emitter.Texture = "rbxassetid://88336007519071"  -- BloodIcon
+	emitter.Color = ColorSequence.new(Color3.fromRGB(180, 20, 20))
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.25),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.8, 0.6),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Lifetime = NumberRange.new(0.6, 1.2)
+	emitter.Rate = 8
+	emitter.Speed = NumberRange.new(0.5, 1.5)
+	emitter.SpreadAngle = Vector2.new(30, 30)
+	emitter.Acceleration = Vector3.new(0, -8, 0)
+	emitter.RotSpeed = NumberRange.new(-30, 30)
+	emitter.Parent = root
+end
+
+local function removeBleedEffect(player: Player)
+	local root = getCharacterRoot(player)
+	if not root then return end
+	local existing = root:FindFirstChild("BleedEffect")
+	if existing then existing:Destroy() end
+end
+
+local function attachPoisonEffect(player: Player)
+	local root = getCharacterRoot(player)
+	if not root or root:FindFirstChild("PoisonEffect") then return end
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Name = "PoisonEffect"
+	emitter.Color = ColorSequence.new(
+		Color3.fromRGB(40, 180, 40),
+		Color3.fromRGB(80, 255, 80)
+	)
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.5, 0.25),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(0.7, 0.7),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Lifetime = NumberRange.new(0.8, 1.6)
+	emitter.Rate = 6
+	emitter.Speed = NumberRange.new(0.3, 1.0)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Acceleration = Vector3.new(0, 2, 0)
+	emitter.RotSpeed = NumberRange.new(-60, 60)
+	emitter.Parent = root
+end
+
+local function removePoisonEffect(player: Player)
+	local root = getCharacterRoot(player)
+	if not root then return end
+	local existing = root:FindFirstChild("PoisonEffect")
+	if existing then existing:Destroy() end
+end
+
+-- ── Bleed / Poison state management ─────────────────────────────────────
+
 local function startBleeding(player: Player, state: PlayerState)
 	state.bleedStacks += 1
 	state.bleedStartTime = os.time()  -- reset clot timer on new wound
 	player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, true)
 	player:SetAttribute(StatsConfig.AttributeNames.BleedStacks, state.bleedStacks)
 	player:SetAttribute(StatsConfig.AttributeNames.BleedStartTime, state.bleedStartTime)
+	attachBleedEffect(player)
 end
 
 local function removeBleedStack(player: Player, state: PlayerState)
@@ -532,6 +644,7 @@ local function removeBleedStack(player: Player, state: PlayerState)
 		state.bleedStacks = 0
 		state.bleedStartTime = nil
 		player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, false)
+		removeBleedEffect(player)
 	else
 		state.bleedStartTime = os.time()  -- reset clot timer for remaining stacks
 	end
@@ -545,18 +658,21 @@ local function stopBleeding(player: Player, state: PlayerState)
 	player:SetAttribute(StatsConfig.AttributeNames.IsBleeding, false)
 	player:SetAttribute(StatsConfig.AttributeNames.BleedStacks, 0)
 	player:SetAttribute(StatsConfig.AttributeNames.BleedStartTime, 0)
+	removeBleedEffect(player)
 end
 
 local function startPoison(player: Player, state: PlayerState)
 	state.poisonStartTime = os.time()
 	player:SetAttribute(StatsConfig.AttributeNames.IsPoisoned, true)
 	player:SetAttribute(StatsConfig.AttributeNames.PoisonStartTime, state.poisonStartTime)
+	attachPoisonEffect(player)
 end
 
 local function stopPoison(player: Player, state: PlayerState)
 	state.poisonStartTime = nil
 	player:SetAttribute(StatsConfig.AttributeNames.IsPoisoned, false)
 	player:SetAttribute(StatsConfig.AttributeNames.PoisonStartTime, 0)
+	removePoisonEffect(player)
 end
 
 local function setEnergy(player: Player, state: PlayerState, newEnergy: number)
@@ -713,6 +829,9 @@ local function setupCharacter(player: Player, character: Model)
 	state.sprintRequested = false
 	state.lastEnergyUseTime = os.clock()
 	state.lastJumpDrainTime = 0
+	state.campfireIdleTime = 0
+	state.sittingAtCampfire = false
+	player:SetAttribute("SittingAtCampfire", false)
 
 	humanoid.UseJumpPower = true
 	humanoid.WalkSpeed = Config.Movement.WalkSpeed
@@ -771,6 +890,10 @@ local function setupCharacter(player: Player, character: Model)
 		setPoison(player, state, 0)
 		state.profileDirty = true
 	end))
+
+	-- Reattach particle effects if player spawns while still bleeding/poisoned
+	if state.bleedStartTime then attachBleedEffect(player) end
+	if state.poisonStartTime then attachPoisonEffect(player) end
 end
 
 local function setupPlayer(player: Player)
@@ -797,6 +920,8 @@ local function setupPlayer(player: Player)
 		bleedStacks = profile.survival.BleedStacks or 0,
 		bleedStartTime = if profile.survival.IsBleeding then os.time() else nil,
 		poisonStartTime = if profile.survival.IsPoisoned then os.time() else nil,
+		campfireIdleTime = 0,
+		sittingAtCampfire = false,
 	}
 
 	playerStates[player] = state
@@ -815,6 +940,7 @@ local function setupPlayer(player: Player)
 	player:SetAttribute(StatsConfig.AttributeNames.Fatigue,    round1(state.fatigue))
 	player:SetAttribute(StatsConfig.AttributeNames.MaxBlood,    StatsConfig.Blood.Max)
 	player:SetAttribute(StatsConfig.AttributeNames.Blood,       round1(state.blood))
+	player:SetAttribute("SittingAtCampfire", false)
 	player:SetAttribute(StatsConfig.AttributeNames.MaxPoison,   StatsConfig.Poison.Max)
 	player:SetAttribute(StatsConfig.AttributeNames.Poison,      round1(state.poison))
 	-- Restore active status effects — prevents relog dodge
@@ -1051,6 +1177,65 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		if state.poison > 0 and humanoid.Health > 0 then
 			local poisonRatio = state.poison / StatsConfig.Poison.Max
 			humanoid:TakeDamage(StatsConfig.Poison.HealthDrainPerSecondAtMax * poisonRatio * deltaTime)
+		end
+
+		-- ── Campfire sit + regen ──────────────────────────────────────────────
+		local rootPart = humanoid.Parent and humanoid.Parent:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			local nearFire = isNearPlacedCampfire(rootPart.Position)
+
+			if moving then
+				state.campfireIdleTime = 0
+			else
+				state.campfireIdleTime += deltaTime
+			end
+
+			local shouldSit = nearFire and state.campfireIdleTime >= CAMPFIRE_IDLE_TO_SIT
+
+			if shouldSit and not state.sittingAtCampfire then
+				state.sittingAtCampfire = true
+				player:SetAttribute("SittingAtCampfire", true)
+			elseif not shouldSit and state.sittingAtCampfire then
+				state.sittingAtCampfire = false
+				player:SetAttribute("SittingAtCampfire", false)
+			end
+
+			if state.sittingAtCampfire then
+				-- Health regen
+				if humanoid.Health < humanoid.MaxHealth then
+					humanoid.Health = math.min(humanoid.Health + CAMPFIRE_HEALTH_REGEN * deltaTime, humanoid.MaxHealth)
+				end
+				-- Energy regen (overrides hunger/thirst penalty)
+				setEnergy(player, state, state.energy + CAMPFIRE_ENERGY_REGEN * deltaTime)
+			end
+		end
+	end
+
+	-- ── Campfire auto-cleanup (runs once per Heartbeat, outside player loop) ──
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("_PlacedItem") == "campfire" then
+			local lastOccupied = obj:GetAttribute("_lastOccupiedTime")
+			if lastOccupied then
+				-- Check if any player is nearby
+				local anyoneNear = false
+				local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+				if primary then
+					for _, plr in ipairs(Players:GetPlayers()) do
+						local char = plr.Character
+						local root = char and char:FindFirstChild("HumanoidRootPart")
+						if root and (root.Position - primary.Position).Magnitude <= CAMPFIRE_SIT_RADIUS then
+							anyoneNear = true
+							break
+						end
+					end
+				end
+
+				if anyoneNear then
+					obj:SetAttribute("_lastOccupiedTime", now)
+				elseif now - lastOccupied >= CAMPFIRE_INACTIVE_LIFE then
+					obj:Destroy()
+				end
+			end
 		end
 	end
 end)
