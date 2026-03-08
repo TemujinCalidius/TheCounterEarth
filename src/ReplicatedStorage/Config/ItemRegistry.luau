@@ -35,6 +35,7 @@ export type ConsumeEffect = {
 	thirst: number?,
 	energy: number?,
 	fatigue: number?,
+	poison: number?,     -- 0-100 poison inflicted when consumed (raw/toxic food)
 }
 
 export type ItemDef = {
@@ -270,7 +271,7 @@ Items.raw_meat = {
 	slotSize = { w = 1, h = 1 },
 	category = "food",
 	perishSeconds = 600,
-	onConsume = { health = 2, hunger = 8, thirst = -5 },
+	onConsume = { health = 2, hunger = 8, thirst = -5, poison = 5 },
 	tags = { "food", "raw", "meat" },
 	icon = "",
 }
@@ -286,6 +287,34 @@ Items.cooked_meat = {
 	perishSeconds = 3600,
 	onConsume = { health = 20, hunger = 35, thirst = -5 },
 	tags = { "food", "cooked", "meat" },
+	icon = "",
+}
+
+Items.raw_fish = {
+	id = "raw_fish",
+	displayName = "Raw Fish",
+	description = "A fresh catch. Cook it unless you enjoy food poisoning.",
+	stackMax = 5,
+	weight = 0.4,
+	slotSize = { w = 1, h = 1 },
+	category = "food",
+	perishSeconds = 600,
+	onConsume = { health = 2, hunger = 12, thirst = -8, poison = 10 },
+	tags = { "food", "raw", "fish" },
+	icon = "",
+}
+
+Items.cooked_fish = {
+	id = "cooked_fish",
+	displayName = "Cooked Fish",
+	description = "Well-cooked fish. Safe to eat and satisfying.",
+	stackMax = 5,
+	weight = 0.35,
+	slotSize = { w = 1, h = 1 },
+	category = "food",
+	perishSeconds = 1800,
+	onConsume = { health = 15, hunger = 25, thirst = -4 },
+	tags = { "food", "cooked", "fish" },
 	icon = "",
 }
 

@@ -8,19 +8,22 @@ src/
 │   ├── GameplayConfig.luau         -- Energy, movement, health, credits, hotbar, inventory
 │   ├── StatsConfig.luau            -- Hunger, thirst, fatigue, blood bar, poison bar
 │   ├── ItemRegistry.luau           -- Item definitions (weight, stackMax, category, etc.)
-│   ├── CraftingConfig.luau         -- Crafting recipes
+│   ├── CraftingConfig.luau         -- Hand-craft recipes (station="hand")
+│   ├── CookingConfig.luau          -- Campfire cooking recipes (raw → cooked)
 │   ├── AssetIds.luau               -- rbxassetid:// mappings for images and sounds
 │   └── InventoryTypes.luau         -- Shared type definitions
 │
 ├── ServerScriptService/            -- Server-only scripts
 │   ├── PlayerStateService.server.luau    -- Player lifecycle, energy, sprint, survival stats, DataStore
 │   ├── InventoryService.server.luau      -- Slot-based inventory, crafting, hotbar pinning, loot bags
+│   ├── CampfireService.server.luau       -- Campfire cooking: per-campfire inventory, cook ticks, state sync
 │   ├── ToolInventoryService.server.luau  -- World tool pickup, equip/unequip, tool templates
 │   └── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
 │
 ├── StarterPlayer/StarterPlayerScripts/   -- Client scripts
-│   ├── HudController.client.luau         -- HUD rendering, hotbar display, drag-to-reorder hotbar
-│   └── InventoryController.client.luau   -- Inventory panel, drag-and-drop to hotbar/between slots
+│   ├── HudController.client.luau         -- HUD rendering, hotbar display, campfire cooking UI
+│   ├── InventoryController.client.luau   -- Inventory panel, recipe book, drag-and-drop
+│   └── PlacementController.client.luau   -- Ghost preview placement mode for placeables
 │
 assets/
 ├── raw/
@@ -72,6 +75,11 @@ The central server authority for player data. Owns the `Remotes` folder.
 - `ConsumeEffect` — InventoryService fires consume effects (hunger/thirst/energy/blood/poison deltas, stopBleed/stopPoison)
 - `ApplyStatusEffect` — weapon scripts / test parts fire `"bleed"`, `"poison"`, `"clearBleed"`, `"clearPoison"`
 
+**BindableFunctions (ServerStorage/ServerBindables):**
+- `InventoryAdd` — CampfireService calls to add items to player inventory
+- `InventoryRemove` — CampfireService calls to remove items from player inventory
+- `InventoryGetQty` — CampfireService calls to check player item quantities
+
 ### 2. Inventory (InventoryService)
 
 Slot-based inventory system using player attributes.
@@ -97,6 +105,11 @@ Slot-based inventory system using player attributes.
 - `PinToSpecificSlot` — pin an item to a specific hotbar slot (drag from inventory)
 - `UnpinFromHotbar` — unpin an item from a hotbar slot
 - `SwapHotbarSlots` — swap two hotbar slots (drag-to-reorder)
+- `PlaceItem` — place a placeable item in the world (validates range, cooldown)
+- `OpenCampfire` — client requests campfire inventory state
+- `CampfireState` — server broadcasts campfire state to nearby clients
+- `CampfireAddItem` — add item from player inventory to campfire input
+- `CampfireTakeItem` — take item from campfire slot to player inventory
 
 **Loot Bags:**
 - Dropped on DropItem or death
@@ -121,7 +134,34 @@ Bridges inventory items to Roblox Tool instances.
 - Equip/unequip via `HotbarEquipRequest`: toggle equip (same slot = unequip)
 - Syncs `HotbarEquippedSlot` attribute from character's equipped tool
 
-### 4. HUD (HudController)
+### 4. Campfire Cooking (CampfireService)
+
+ARK/Minecraft-style station cooking. Campfires act as shared containers — any player nearby can interact.
+
+**Per-campfire state:**
+- `input` — item stack in the input slot (itemId + qty)
+- `output` — cooked item stack in the output slot (itemId + qty)
+- `cookProgress` / `cookDuration` — seconds into current cook / total required
+
+**Cooking loop (Heartbeat):**
+- For each campfire with non-empty input: increment cookProgress by dt
+- When cookProgress >= cookDuration: move 1 unit from input to output, reset progress
+- If output slot at max stack: cooking pauses until output is taken
+- Non-cookable items sit in input without cooking
+
+**Viewer tracking:**
+- `campfireViewers[model]` tracks which players have the UI open
+- Server broadcasts `CampfireState` to all viewers on state change
+
+**Campfire lifecycle:**
+- Registered when `_PlacedItem = "campfire"` model appears in Workspace
+- ProximityPrompt added by InventoryService on placement
+- On `model.Destroying`: drops loot bag with remaining input/output items
+
+**Recipes:**
+- Defined in `CookingConfig.luau` — key is raw item ID, value is `{ output, cookSeconds, station, skillLevel, displayName }`
+
+### 5. HUD (HudController)
 
 Client-side UI rendering.
 
@@ -146,18 +186,26 @@ Client-side UI rendering.
 **Visual Effects:**
 - Vignette overlay: opacity increases as energy drops (darkens screen edges)
 
-### 5. Inventory Controller (InventoryController)
+### 6. Inventory Controller (InventoryController)
 
 Client-side inventory panel with drag-and-drop.
 
-**Panel:**
-- Toggle with Tab key
-- Grid display of inventory slots (reads `InvSlot_N` / `InvQty_N` attributes)
-- Shows item name and quantity per slot
+**Tabs:** ITEMS | RECIPES | CHARACTER
+
+**ITEMS tab:** Grid display of inventory slots, detail panel with USE/PLACE/HOTBAR/SPLIT/DROP actions.
+
+**RECIPES tab:** Unified recipe list from CraftingConfig + CookingConfig.
+- Filter bar: ALL / HAND / CAMPFIRE
+- Hand-craft recipes: interactive with CRAFT button and ingredient availability ([ok]/[need])
+- Station recipes: read-only with input → output + cook time display
+- Station badges: HAND (blue) / CAMPFIRE (orange) on each row
+
+**CHARACTER tab:** Equipment slots and RPG stat block.
 
 **Drag-and-Drop:**
 - Inventory slot → Hotbar slot: fires `PinToSpecificSlot` with target slot number
 - Inventory slot → Inventory slot: fires `SwapSlots`
+- Inventory slot → Campfire input slot: fires `CampfireAddItem` (cross-ScreenGui via ObjectValue ref)
 - Inventory slot → empty space: fires `DropItem` (drops to world)
 - Visual ghost icon follows cursor during drag
 

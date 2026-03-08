@@ -1,11 +1,12 @@
 -- CraftingConfig.luau
 -- Hand-crafting recipes that require no station.
--- All are visible in the craft panel; the client greys out ones the player
+-- All are visible in the Recipe Book; the client greys out ones the player
 -- can't currently afford.
 --
 -- ingredients: list of { itemId, qty } consumed on craft
 -- output:      { itemId, qty } produced on craft
--- requiresStation: nil = anywhere, string = station tag required (future)
+-- station:     "hand" = no station required (crafted anywhere)
+-- skillLevel:  minimum skill level required (future skill system; 1 = no req)
 
 return {
 	Recipes = {
@@ -13,6 +14,8 @@ return {
 			id          = "stone_axe",
 			displayName = "Stone Axe",
 			description = "A crude axe. Needed to chop wood.",
+			station     = "hand",
+			skillLevel  = 1,
 			ingredients = {
 				{ itemId = "twig",   qty = 3 },
 				{ itemId = "rock",   qty = 2 },
@@ -23,6 +26,8 @@ return {
 			id          = "stone_pickaxe",
 			displayName = "Stone Pickaxe",
 			description = "A rough pickaxe. Mines soft rock.",
+			station     = "hand",
+			skillLevel  = 1,
 			ingredients = {
 				{ itemId = "twig",   qty = 2 },
 				{ itemId = "rock",   qty = 4 },
@@ -33,6 +38,8 @@ return {
 			id          = "stone_knife",
 			displayName = "Stone Knife",
 			description = "A shard bound to a twig. Harvests reed and hide.",
+			station     = "hand",
+			skillLevel  = 1,
 			ingredients = {
 				{ itemId = "twig",   qty = 2 },
 				{ itemId = "rock",   qty = 2 },
@@ -43,6 +50,8 @@ return {
 			id          = "campfire",
 			displayName = "Campfire",
 			description = "A basic campfire. Cook food and rest nearby.",
+			station     = "hand",
+			skillLevel  = 1,
 			ingredients = {
 				{ itemId = "twig",   qty = 5 },
 				{ itemId = "rock",   qty = 3 },
@@ -53,6 +62,8 @@ return {
 			id          = "bedroll",
 			displayName = "Bedroll",
 			description = "A rough bedroll. Sets your respawn point.",
+			station     = "hand",
+			skillLevel  = 1,
 			ingredients = {
 				{ itemId = "reed",   qty = 8 },
 			},
@@ -62,6 +73,8 @@ return {
 			id          = "satchel_reed",
 			displayName = "Reed Satchel",
 			description = "A woven reed satchel. Basic backpack storage.",
+			station     = "hand",
+			skillLevel  = 1,
 			ingredients = {
 				{ itemId = "reed",   qty = 12 },
 				{ itemId = "twig",   qty = 2 },

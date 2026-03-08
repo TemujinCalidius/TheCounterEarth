@@ -24,6 +24,11 @@ local swapHotbarSlotsRemote   = remotesFolder:WaitForChild("SwapHotbarSlots")
 local useItemRemote           = remotesFolder:WaitForChild("UseItem")
 local startPlacementEvent     = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
+local CookingConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
+local openCampfireRemote   = remotesFolder:WaitForChild("OpenCampfire")
+local campfireStateRemote  = remotesFolder:WaitForChild("CampfireState")
+local campfireAddRemote    = remotesFolder:WaitForChild("CampfireAddItem")
+local campfireTakeRemote   = remotesFolder:WaitForChild("CampfireTakeItem")
 local hotbarSlotCount = math.clamp(math.floor(tonumber(Config.Hotbar and Config.Hotbar.Slots) or 9), 1, 9)
 
 -- Expanded survival panel dimensions
@@ -1107,6 +1112,570 @@ RunService.RenderStepped:Connect(function(deltaTime)
 	if heartbeatSound.SoundId ~= "" and not heartbeatSound.IsPlaying then heartbeatSound:Play() end
 	heartbeatSound.Volume        = smooth(heartbeatSound.Volume,        heartbeatTargetVolume, 7, deltaTime)
 	heartbeatSound.PlaybackSpeed = smooth(heartbeatSound.PlaybackSpeed, heartbeatTargetSpeed,  7, deltaTime)
+end)
+
+-- ---------------------------------------------------------------------------
+-- Campfire cooking UI — opens via ProximityPrompt on placed campfires
+-- ---------------------------------------------------------------------------
+
+local cookingPanel: Frame? = nil
+local activeCampfireModel: Model? = nil
+local cookingState: { [string]: any }? = nil
+local cookingInputBtn: TextButton? = nil
+local cookingOutputBtn: TextButton? = nil
+local cookingProgressBar: Frame? = nil
+local cookingTimerLabel: TextLabel? = nil
+local cookingInputIcon: ImageLabel? = nil
+local cookingInputQty: TextLabel? = nil
+local cookingOutputIcon: ImageLabel? = nil
+local cookingOutputQty: TextLabel? = nil
+local foodPickerFrame: Frame? = nil
+
+local function getItemAbbrev(itemId: string): string
+	local def = ItemRegistry.get(itemId)
+	if def then return string.sub(def.displayName, 1, 3):upper() end
+	return string.sub(itemId, 1, 3):upper()
+end
+
+local function getItemIcon(itemId: string): string
+	local def = ItemRegistry.get(itemId)
+	return def and def.icon or ""
+end
+
+local function updateSlotVisual(btn: TextButton, iconLabel: ImageLabel, qtyLabel: TextLabel, slotData: { itemId: string, qty: number }?)
+	if slotData and slotData.qty > 0 then
+		local icon = getItemIcon(slotData.itemId)
+		if icon ~= "" then
+			iconLabel.Image = icon
+			iconLabel.Visible = true
+			btn.Text = ""
+		else
+			iconLabel.Visible = false
+			btn.Text = getItemAbbrev(slotData.itemId)
+		end
+		qtyLabel.Text = tostring(slotData.qty)
+		qtyLabel.Visible = true
+	else
+		iconLabel.Visible = false
+		btn.Text = ""
+		qtyLabel.Visible = false
+	end
+end
+
+local function refreshCookingUI()
+	if not cookingPanel or not cookingState then return end
+
+	updateSlotVisual(cookingInputBtn :: TextButton, cookingInputIcon :: ImageLabel, cookingInputQty :: TextLabel, cookingState.input)
+	updateSlotVisual(cookingOutputBtn :: TextButton, cookingOutputIcon :: ImageLabel, cookingOutputQty :: TextLabel, cookingState.output)
+
+	-- Progress bar
+	local bar = cookingProgressBar :: Frame
+	local timer = cookingTimerLabel :: TextLabel
+	if cookingState.input and cookingState.cookDuration > 0 then
+		local ratio = math.clamp(cookingState.cookProgress / cookingState.cookDuration, 0, 1)
+		bar.Size = UDim2.new(ratio, 0, 1, 0)
+		bar.Visible = true
+		local remaining = math.max(0, cookingState.cookDuration - cookingState.cookProgress)
+		timer.Text = string.format("%.1fs", remaining)
+		timer.Visible = true
+	else
+		bar.Size = UDim2.new(0, 0, 1, 0)
+		bar.Visible = false
+		timer.Visible = false
+	end
+end
+
+local function closeFoodPicker()
+	if foodPickerFrame then
+		foodPickerFrame:Destroy()
+		foodPickerFrame = nil
+	end
+end
+
+local function openFoodPicker()
+	closeFoodPicker()
+	if not activeCampfireModel then return end
+
+	-- Gather food items from player inventory
+	local maxSlots = math.floor(tonumber(player:GetAttribute("MaxInvSlots")) or 5)
+	local foodItems: { { itemId: string, qty: number } } = {}
+	for i = 1, maxSlots do
+		local slotItem = player:GetAttribute("InvSlot_" .. i)
+		local slotQty  = tonumber(player:GetAttribute("InvQty_" .. i)) or 0
+		if type(slotItem) == "string" and slotItem ~= "" and slotQty > 0 then
+			local def = ItemRegistry.get(slotItem)
+			if def and def.category == "food" then
+				-- Check if already in list (merge stacks)
+				local found = false
+				for _, entry in ipairs(foodItems) do
+					if entry.itemId == slotItem then
+						entry.qty = entry.qty + slotQty
+						found = true
+						break
+					end
+				end
+				if not found then
+					table.insert(foodItems, { itemId = slotItem, qty = slotQty })
+				end
+			end
+		end
+	end
+
+	if #foodItems == 0 then return end
+
+	local pickerHeight = math.min(#foodItems * 32 + 8, 168)
+	local picker = Instance.new("Frame")
+	picker.Name = "FoodPicker"
+	picker.Size = UDim2.fromOffset(180, pickerHeight)
+	picker.Position = UDim2.new(0, 12, 0, -pickerHeight - 4)
+	picker.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+	picker.BackgroundTransparency = 0.05
+	picker.BorderSizePixel = 0
+	picker.ClipsDescendants = true
+	picker.Parent = cookingPanel
+
+	local pickerCorner = Instance.new("UICorner")
+	pickerCorner.CornerRadius = UDim.new(0, 8)
+	pickerCorner.Parent = picker
+
+	local pickerStroke = Instance.new("UIStroke")
+	pickerStroke.Color = Color3.fromRGB(210, 220, 245)
+	pickerStroke.Transparency = 0.6
+	pickerStroke.Thickness = 1
+	pickerStroke.Parent = picker
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Vertical
+	layout.Padding = UDim.new(0, 2)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = picker
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 4)
+	padding.PaddingLeft = UDim.new(0, 4)
+	padding.PaddingRight = UDim.new(0, 4)
+	padding.Parent = picker
+
+	for idx, entry in ipairs(foodItems) do
+		local def = ItemRegistry.get(entry.itemId)
+		local displayName = def and def.displayName or entry.itemId
+		local recipe = CookingConfig.Recipes[entry.itemId]
+		local cookable = recipe ~= nil
+
+		local row = Instance.new("TextButton")
+		row.Name = "Food_" .. idx
+		row.Size = UDim2.new(1, 0, 0, 28)
+		row.BackgroundColor3 = cookable and Color3.fromRGB(35, 45, 30) or Color3.fromRGB(35, 35, 42)
+		row.BackgroundTransparency = 0.3
+		row.BorderSizePixel = 0
+		row.Text = string.format("%s x%d%s", displayName, entry.qty, cookable and "" or " (raw)")
+		row.TextColor3 = cookable and Color3.fromRGB(180, 220, 160) or Color3.fromRGB(160, 160, 170)
+		row.TextSize = 13
+		row.Font = Enum.Font.GothamMedium
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.AutoButtonColor = true
+		row.LayoutOrder = idx
+		row.Parent = picker
+
+		local rowCorner = Instance.new("UICorner")
+		rowCorner.CornerRadius = UDim.new(0, 4)
+		rowCorner.Parent = row
+
+		local rowPad = Instance.new("UIPadding")
+		rowPad.PaddingLeft = UDim.new(0, 6)
+		rowPad.Parent = row
+
+		row.MouseButton1Click:Connect(function()
+			if not activeCampfireModel then return end
+			-- Add 1 item at a time (can click repeatedly)
+			local addQty = 1
+			campfireAddRemote:FireServer(activeCampfireModel, entry.itemId, addQty)
+			closeFoodPicker()
+		end)
+	end
+
+	foodPickerFrame = picker
+end
+
+local function buildCookingPanel()
+	if cookingPanel then return end
+
+	local panel = Instance.new("Frame")
+	panel.Name = "CookingPanel"
+	panel.Size = UDim2.fromOffset(280, 90)
+	panel.Position = UDim2.new(0.5, -140, 1, -100)
+	panel.AnchorPoint = Vector2.new(0, 1)
+	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	panel.BackgroundTransparency = 0.15
+	panel.BorderSizePixel = 0
+	panel.Visible = false
+	panel.Parent = hud
+
+	local panelCorner = Instance.new("UICorner")
+	panelCorner.CornerRadius = UDim.new(0, 12)
+	panelCorner.Parent = panel
+
+	local panelStroke = Instance.new("UIStroke")
+	panelStroke.Color = Color3.fromRGB(210, 220, 245)
+	panelStroke.Transparency = 0.6
+	panelStroke.Thickness = 1
+	panelStroke.Parent = panel
+
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, 0, 0, 20)
+	title.Position = UDim2.fromOffset(0, 4)
+	title.BackgroundTransparency = 1
+	title.Text = "CAMPFIRE"
+	title.TextColor3 = Color3.fromRGB(210, 180, 120)
+	title.TextSize = 12
+	title.Font = Enum.Font.GothamBold
+	title.Parent = panel
+
+	-- Close button
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "Close"
+	closeBtn.Size = UDim2.fromOffset(20, 20)
+	closeBtn.Position = UDim2.new(1, -24, 0, 4)
+	closeBtn.BackgroundColor3 = Color3.fromRGB(120, 35, 35)
+	closeBtn.BackgroundTransparency = 0.4
+	closeBtn.Text = "X"
+	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	closeBtn.TextSize = 11
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Parent = panel
+
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0, 4)
+	closeBtnCorner.Parent = closeBtn
+
+	-- Input slot (left)
+	local inputBtn = Instance.new("TextButton")
+	inputBtn.Name = "InputSlot"
+	inputBtn.Size = UDim2.fromOffset(56, 56)
+	inputBtn.Position = UDim2.fromOffset(16, 28)
+	inputBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+	inputBtn.BackgroundTransparency = 0.1
+	inputBtn.BorderSizePixel = 0
+	inputBtn.Text = ""
+	inputBtn.TextColor3 = Color3.fromRGB(200, 200, 210)
+	inputBtn.TextSize = 11
+	inputBtn.Font = Enum.Font.GothamMedium
+	inputBtn.AutoButtonColor = true
+	inputBtn.Parent = panel
+
+	local inputCorner = Instance.new("UICorner")
+	inputCorner.CornerRadius = UDim.new(0, 6)
+	inputCorner.Parent = inputBtn
+
+	local inputStroke = Instance.new("UIStroke")
+	inputStroke.Color = Color3.fromRGB(95, 105, 125)
+	inputStroke.Transparency = 0.4
+	inputStroke.Thickness = 1
+	inputStroke.Parent = inputBtn
+
+	local inputIcon = Instance.new("ImageLabel")
+	inputIcon.Name = "Icon"
+	inputIcon.Size = UDim2.fromOffset(40, 40)
+	inputIcon.Position = UDim2.fromOffset(8, 6)
+	inputIcon.BackgroundTransparency = 1
+	inputIcon.ScaleType = Enum.ScaleType.Fit
+	inputIcon.Visible = false
+	inputIcon.Parent = inputBtn
+
+	local inputQtyLabel = Instance.new("TextLabel")
+	inputQtyLabel.Name = "Qty"
+	inputQtyLabel.Size = UDim2.fromOffset(20, 14)
+	inputQtyLabel.Position = UDim2.new(1, -22, 1, -16)
+	inputQtyLabel.BackgroundTransparency = 1
+	inputQtyLabel.Text = ""
+	inputQtyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	inputQtyLabel.TextSize = 11
+	inputQtyLabel.Font = Enum.Font.GothamBold
+	inputQtyLabel.TextXAlignment = Enum.TextXAlignment.Right
+	inputQtyLabel.Visible = false
+	inputQtyLabel.Parent = inputBtn
+
+	local inputLabel = Instance.new("TextLabel")
+	inputLabel.Size = UDim2.fromOffset(56, 12)
+	inputLabel.Position = UDim2.fromOffset(16, 84)
+	inputLabel.BackgroundTransparency = 1
+	inputLabel.Text = "INPUT"
+	inputLabel.TextColor3 = Color3.fromRGB(140, 140, 155)
+	inputLabel.TextSize = 9
+	inputLabel.Font = Enum.Font.GothamMedium
+	inputLabel.Parent = panel
+
+	-- Progress bar area (center)
+	local progressBg = Instance.new("Frame")
+	progressBg.Name = "ProgressBg"
+	progressBg.Size = UDim2.fromOffset(100, 10)
+	progressBg.Position = UDim2.fromOffset(90, 50)
+	progressBg.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
+	progressBg.BorderSizePixel = 0
+	progressBg.Parent = panel
+
+	local progressBgCorner = Instance.new("UICorner")
+	progressBgCorner.CornerRadius = UDim.new(0, 4)
+	progressBgCorner.Parent = progressBg
+
+	local progressFill = Instance.new("Frame")
+	progressFill.Name = "Fill"
+	progressFill.Size = UDim2.new(0, 0, 1, 0)
+	progressFill.BackgroundColor3 = Color3.fromRGB(220, 160, 50)
+	progressFill.BorderSizePixel = 0
+	progressFill.Visible = false
+	progressFill.Parent = progressBg
+
+	local progressFillCorner = Instance.new("UICorner")
+	progressFillCorner.CornerRadius = UDim.new(0, 4)
+	progressFillCorner.Parent = progressFill
+
+	local timerText = Instance.new("TextLabel")
+	timerText.Name = "Timer"
+	timerText.Size = UDim2.fromOffset(100, 14)
+	timerText.Position = UDim2.fromOffset(90, 62)
+	timerText.BackgroundTransparency = 1
+	timerText.Text = ""
+	timerText.TextColor3 = Color3.fromRGB(220, 180, 100)
+	timerText.TextSize = 10
+	timerText.Font = Enum.Font.GothamMedium
+	timerText.Visible = false
+	timerText.Parent = panel
+
+	-- Arrow indicators
+	local arrow = Instance.new("TextLabel")
+	arrow.Size = UDim2.fromOffset(100, 16)
+	arrow.Position = UDim2.fromOffset(90, 34)
+	arrow.BackgroundTransparency = 1
+	arrow.Text = ">>>"
+	arrow.TextColor3 = Color3.fromRGB(180, 150, 90)
+	arrow.TextSize = 14
+	arrow.Font = Enum.Font.GothamBold
+	arrow.Parent = panel
+
+	-- Output slot (right)
+	local outputBtn = Instance.new("TextButton")
+	outputBtn.Name = "OutputSlot"
+	outputBtn.Size = UDim2.fromOffset(56, 56)
+	outputBtn.Position = UDim2.fromOffset(208, 28)
+	outputBtn.BackgroundColor3 = Color3.fromRGB(30, 40, 30)
+	outputBtn.BackgroundTransparency = 0.1
+	outputBtn.BorderSizePixel = 0
+	outputBtn.Text = ""
+	outputBtn.TextColor3 = Color3.fromRGB(200, 200, 210)
+	outputBtn.TextSize = 11
+	outputBtn.Font = Enum.Font.GothamMedium
+	outputBtn.AutoButtonColor = true
+	outputBtn.Parent = panel
+
+	local outputCorner = Instance.new("UICorner")
+	outputCorner.CornerRadius = UDim.new(0, 6)
+	outputCorner.Parent = outputBtn
+
+	local outputStroke = Instance.new("UIStroke")
+	outputStroke.Color = Color3.fromRGB(80, 120, 80)
+	outputStroke.Transparency = 0.4
+	outputStroke.Thickness = 1
+	outputStroke.Parent = outputBtn
+
+	local outputIcon = Instance.new("ImageLabel")
+	outputIcon.Name = "Icon"
+	outputIcon.Size = UDim2.fromOffset(40, 40)
+	outputIcon.Position = UDim2.fromOffset(8, 6)
+	outputIcon.BackgroundTransparency = 1
+	outputIcon.ScaleType = Enum.ScaleType.Fit
+	outputIcon.Visible = false
+	outputIcon.Parent = outputBtn
+
+	local outputQtyLabel = Instance.new("TextLabel")
+	outputQtyLabel.Name = "Qty"
+	outputQtyLabel.Size = UDim2.fromOffset(20, 14)
+	outputQtyLabel.Position = UDim2.new(1, -22, 1, -16)
+	outputQtyLabel.BackgroundTransparency = 1
+	outputQtyLabel.Text = ""
+	outputQtyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	outputQtyLabel.TextSize = 11
+	outputQtyLabel.Font = Enum.Font.GothamBold
+	outputQtyLabel.TextXAlignment = Enum.TextXAlignment.Right
+	outputQtyLabel.Visible = false
+	outputQtyLabel.Parent = outputBtn
+
+	local outputLabel = Instance.new("TextLabel")
+	outputLabel.Size = UDim2.fromOffset(56, 12)
+	outputLabel.Position = UDim2.fromOffset(208, 84)
+	outputLabel.BackgroundTransparency = 1
+	outputLabel.Text = "OUTPUT"
+	outputLabel.TextColor3 = Color3.fromRGB(140, 140, 155)
+	outputLabel.TextSize = 9
+	outputLabel.Font = Enum.Font.GothamMedium
+	outputLabel.Parent = panel
+
+	-- ObjectValue so InventoryController can find the active campfire for drag-drop
+	local campfireRef = Instance.new("ObjectValue")
+	campfireRef.Name = "ActiveCampfire"
+	campfireRef.Parent = panel
+
+	-- Store refs
+	cookingPanel      = panel
+	cookingInputBtn   = inputBtn
+	cookingOutputBtn  = outputBtn
+	cookingProgressBar = progressFill
+	cookingTimerLabel = timerText
+	cookingInputIcon  = inputIcon
+	cookingInputQty   = inputQtyLabel
+	cookingOutputIcon = outputIcon
+	cookingOutputQty  = outputQtyLabel
+
+	-- Click handlers
+	inputBtn.MouseButton1Click:Connect(function()
+		if foodPickerFrame then
+			closeFoodPicker()
+		else
+			openFoodPicker()
+		end
+	end)
+
+	outputBtn.MouseButton1Click:Connect(function()
+		if not activeCampfireModel or not cookingState then return end
+		if cookingState.output and cookingState.output.qty > 0 then
+			campfireTakeRemote:FireServer(activeCampfireModel, "output", cookingState.output.qty)
+		end
+	end)
+
+	closeBtn.MouseButton1Click:Connect(function()
+		closeCookingPanel()
+	end)
+end
+
+local function openCookingPanel(campfireModel: Model)
+	if activeCampfireModel == campfireModel and cookingPanel and cookingPanel.Visible then
+		return -- already open for this campfire
+	end
+
+	buildCookingPanel()
+	activeCampfireModel = campfireModel
+	cookingState = nil
+	local ref = cookingPanel:FindFirstChild("ActiveCampfire")
+	if ref then ref.Value = campfireModel end
+	cookingPanel.Visible = true
+	closeFoodPicker()
+
+	-- Request state from server
+	openCampfireRemote:FireServer(campfireModel)
+end
+
+function closeCookingPanel()
+	closeFoodPicker()
+	if cookingPanel then
+		cookingPanel.Visible = false
+		local ref = cookingPanel:FindFirstChild("ActiveCampfire")
+		if ref then ref.Value = nil end
+	end
+	activeCampfireModel = nil
+	cookingState = nil
+end
+
+-- Listen for server state updates
+campfireStateRemote.OnClientEvent:Connect(function(campfireModel, data)
+	if campfireModel ~= activeCampfireModel then return end
+
+	if data == nil then
+		-- Campfire destroyed
+		closeCookingPanel()
+		return
+	end
+
+	cookingState = data
+	refreshCookingUI()
+end)
+
+-- Close panel if player walks too far from campfire
+local COOK_RANGE_CHECK_INTERVAL = 0.5
+local cookRangeCheckTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+	if not activeCampfireModel or not cookingPanel or not cookingPanel.Visible then return end
+
+	cookRangeCheckTimer = cookRangeCheckTimer + dt
+	if cookRangeCheckTimer < COOK_RANGE_CHECK_INTERVAL then return end
+	cookRangeCheckTimer = 0
+
+	local campfirePos = nil
+	local primary = activeCampfireModel.PrimaryPart or activeCampfireModel:FindFirstChildWhichIsA("BasePart")
+	if primary then campfirePos = primary.Position end
+
+	if not campfirePos then
+		closeCookingPanel()
+		return
+	end
+
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local interactRange = (Config.Campfire and Config.Campfire.InteractRange) or 10
+	if (root.Position - campfirePos).Magnitude > interactRange + 2 then
+		closeCookingPanel()
+	end
+end)
+
+-- Also interpolate progress bar locally for smoothness
+RunService.RenderStepped:Connect(function(dt)
+	if not cookingState or not cookingPanel or not cookingPanel.Visible then return end
+	if not cookingState.input or cookingState.cookDuration <= 0 then return end
+
+	-- Locally advance progress for smooth bar
+	cookingState.cookProgress = math.min(cookingState.cookProgress + dt, cookingState.cookDuration)
+	refreshCookingUI()
+end)
+
+-- Listen for ProximityPrompt triggers on campfires
+Workspace.DescendantAdded:Connect(function(inst)
+	if inst:IsA("ProximityPrompt") then
+		local parent = inst.Parent
+		local model = parent and parent.Parent
+		if not model then
+			model = parent and parent:FindFirstAncestorWhichIsA("Model")
+		end
+		if model and model:IsA("Model") and model:GetAttribute("_PlacedItem") == "campfire" then
+			inst.Triggered:Connect(function(triggerPlayer)
+				if triggerPlayer == player then
+					openCookingPanel(model)
+				end
+			end)
+		end
+	end
+end)
+
+-- Also hook existing campfire ProximityPrompts
+for _, desc in ipairs(Workspace:GetDescendants()) do
+	if desc:IsA("ProximityPrompt") then
+		local parent = desc.Parent
+		local model = parent and parent.Parent
+		if not model then
+			model = parent and parent:FindFirstAncestorWhichIsA("Model")
+		end
+		if model and model:IsA("Model") and model:GetAttribute("_PlacedItem") == "campfire" then
+			desc.Triggered:Connect(function(triggerPlayer)
+				if triggerPlayer == player then
+					openCookingPanel(model)
+				end
+			end)
+		end
+	end
+end
+
+-- Close cooking panel on Escape
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.Escape then
+		if cookingPanel and cookingPanel.Visible then
+			closeCookingPanel()
+		end
+	end
 end)
 
 -- ---------------------------------------------------------------------------

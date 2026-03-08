@@ -483,6 +483,39 @@ Workspace.DescendantAdded:Connect(function(inst)
 	end
 end)
 
+-- ── Cross-service inventory access (BindableFunctions) ───────────────────
+-- Allows other server scripts (CampfireService, etc.) to add/remove items
+-- from player inventories via ServerBindables.
+
+local invBindables = ServerStorage:WaitForChild("ServerBindables")
+
+local invAddFunc = Instance.new("BindableFunction")
+invAddFunc.Name = "InventoryAdd"
+invAddFunc.Parent = invBindables
+invAddFunc.OnInvoke = function(player: Player, itemId: string, qty: number): boolean
+	local id = sanitizeItemId(itemId)
+	if id == "" or qty < 1 then return false end
+	return addQty(player, id, qty)
+end
+
+local invRemoveFunc = Instance.new("BindableFunction")
+invRemoveFunc.Name = "InventoryRemove"
+invRemoveFunc.Parent = invBindables
+invRemoveFunc.OnInvoke = function(player: Player, itemId: string, qty: number): boolean
+	local id = sanitizeItemId(itemId)
+	if id == "" or qty < 1 then return false end
+	return removeQty(player, id, qty)
+end
+
+local invGetQtyFunc = Instance.new("BindableFunction")
+invGetQtyFunc.Name = "InventoryGetQty"
+invGetQtyFunc.Parent = invBindables
+invGetQtyFunc.OnInvoke = function(player: Player, itemId: string): number
+	local id = sanitizeItemId(itemId)
+	if id == "" then return 0 end
+	return getTotalQty(player, id)
+end
+
 -- ── UseItem ───────────────────────────────────────────────────────────────
 
 local EAT_COOLDOWN = 2.0  -- seconds; must finish channel before next use
@@ -518,6 +551,7 @@ useItemRemote.OnServerEvent:Connect(function(player, rawItemId)
 	if type(effects.thirst)  == "number" then payload.thirst  = effects.thirst  end
 	if type(effects.fatigue) == "number" then payload.fatigue = effects.fatigue end
 	if type(effects.energy)  == "number" then payload.energy  = effects.energy  end
+	if type(effects.poison)  == "number" and effects.poison > 0 then payload.poison = effects.poison end
 	if def.tags then
 		for _, tag in ipairs(def.tags) do
 			if tag == "stops_bleed"   then payload.stopBleed  = true end
@@ -768,6 +802,17 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 		elseif desc:IsA("Sound") then
 			desc:Play()
 		end
+	end
+
+	-- Add ProximityPrompt for campfire cooking UI
+	if itemId == "campfire" then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Cook"
+		prompt.ObjectText = "Campfire"
+		prompt.MaxActivationDistance = GameplayConfig.Campfire.InteractRange
+		prompt.HoldDuration = 0
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
 	end
 
 	placed:PivotTo(rawCFrame)

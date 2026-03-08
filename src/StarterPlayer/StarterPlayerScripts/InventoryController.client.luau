@@ -7,7 +7,7 @@
 --               Click a slot to select it; detail strip shows name/desc/buttons.
 --               USE / -> HOTBAR / SPLIT / DROP actions.
 --               Drag a slot onto another to swap; drag outside the panel to drop.
--- CRAFT tab  -- hand-craft recipes with ingredient status.
+-- RECIPES tab -- all recipes (hand-craft + cooking) with station badges and filters.
 -- CHARACTER tab -- equipment slots and RPG stat block.
 
 local Players               = game:GetService("Players")
@@ -19,6 +19,7 @@ local UserInputService      = game:GetService("UserInputService")
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local CraftingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CraftingConfig"))
+local CookingConfig  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
 
 -- Chewing sound for food consumption from inventory UI
 local chewingSound = Instance.new("Sound")
@@ -36,6 +37,7 @@ local splitStackRemote      = remotes:WaitForChild("SplitStack")         :: Remo
 local swapSlotsRemote       = remotes:WaitForChild("SwapSlots")          :: RemoteEvent
 local dropItemRemote        = remotes:WaitForChild("DropItem")           :: RemoteEvent
 local pinToSpecificSlotRemote = remotes:WaitForChild("PinToSpecificSlot") :: RemoteEvent
+local campfireAddRemote     = remotes:WaitForChild("CampfireAddItem")    :: RemoteEvent
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -243,7 +245,7 @@ local function makeTabBtn(label: string, xOff: number): TextButton
 end
 
 local itemsTabBtn = makeTabBtn("ITEMS",     0)
-local craftTabBtn = makeTabBtn("CRAFT",   104)
+local craftTabBtn = makeTabBtn("RECIPES", 104)
 local charTabBtn  = makeTabBtn("CHARACTER", 208)
 
 -- Content area (520 x 350 px usable)
@@ -467,7 +469,9 @@ wBar.BorderSizePixel  = 0
 wBar.Parent           = wBarBg
 addCorner(wBar, 4)
 
--- ── CRAFT PANE ────────────────────────────────────────────────────────────
+local refreshRecipeBook -- forward declaration; assigned after helpers
+
+-- ── RECIPES PANE ──────────────────────────────────────────────────────────
 
 local craftPane = Instance.new("Frame")
 craftPane.Size               = UDim2.new(1, 0, 1, 0)
@@ -475,18 +479,38 @@ craftPane.BackgroundTransparency = 1
 craftPane.Visible            = false
 craftPane.Parent             = content
 
-makeLabel(craftPane, {
-	Size           = UDim2.new(1, 0, 0, 16),
-	Text           = "HAND CRAFTING  --  no station needed",
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextColor3     = MUTED,
-	TextSize       = 10,
-	Font           = FONTB,
-})
+-- Filter bar
+local filterBar = Instance.new("Frame")
+filterBar.Size               = UDim2.new(1, 0, 0, 22)
+filterBar.BackgroundTransparency = 1
+filterBar.Parent             = craftPane
+
+local recipeFilter = "all"
+
+local function makeFilterBtn(label: string, xOff: number): TextButton
+	local b = makeButton(filterBar, {
+		Size             = UDim2.new(0, 72, 0, 20),
+		Position         = UDim2.new(0, xOff, 0, 0),
+		BackgroundColor3 = BG2,
+		Text             = label,
+		TextSize         = 10,
+		TextColor3       = MUTED,
+	})
+	addCorner(b, 4)
+	return b
+end
+
+local filterAllBtn  = makeFilterBtn("ALL",       0)
+local filterHandBtn = makeFilterBtn("HAND",     76)
+local filterCampBtn = makeFilterBtn("CAMPFIRE", 152)
+
+-- Initial highlight
+filterAllBtn.TextColor3       = TEXT
+filterAllBtn.BackgroundColor3 = BG3
 
 local craftScroll = Instance.new("ScrollingFrame")
-craftScroll.Size                = UDim2.new(1, 0, 1, -22)
-craftScroll.Position            = UDim2.new(0, 0, 0, 22)
+craftScroll.Size                = UDim2.new(1, 0, 1, -26)
+craftScroll.Position            = UDim2.new(0, 0, 0, 26)
 craftScroll.BackgroundColor3    = BG2
 craftScroll.BorderSizePixel     = 0
 craftScroll.ScrollBarThickness  = 4
@@ -507,16 +531,62 @@ craftPad.PaddingLeft  = UDim.new(0, 6)
 craftPad.PaddingRight = UDim.new(0, 6)
 craftPad.Parent       = craftScroll
 
+-- ── Unified recipe list (hand-craft + cooking) ──────────────────────────
+
+type UnifiedRecipe = {
+	id: string,
+	displayName: string,
+	station: string,
+	ingredients: { { itemId: string, qty: number } }?,
+	inputId: string?,
+	output: { itemId: string, qty: number },
+	cookSeconds: number?,
+}
+
+local allRecipes: { UnifiedRecipe } = {}
+
+for _, recipe in ipairs(CraftingConfig.Recipes) do
+	table.insert(allRecipes, {
+		id          = recipe.id,
+		displayName = recipe.displayName,
+		station     = recipe.station or "hand",
+		ingredients = recipe.ingredients,
+		output      = recipe.output,
+	})
+end
+
+for inputId, recipe in pairs(CookingConfig.Recipes) do
+	table.insert(allRecipes, {
+		id          = inputId .. "_cook",
+		displayName = recipe.displayName,
+		station     = recipe.station or "campfire",
+		inputId     = inputId,
+		output      = { itemId = recipe.output, qty = 1 },
+		cookSeconds = recipe.cookSeconds,
+	})
+end
+
+table.sort(allRecipes, function(a, b)
+	if a.station ~= b.station then
+		if a.station == "hand" then return true end
+		if b.station == "hand" then return false end
+		return a.station < b.station
+	end
+	return a.displayName < b.displayName
+end)
+
 -- ── Pre-build recipe rows ─────────────────────────────────────────────────
 
 type RecipeRow = {
-	craftBtn: TextButton,
+	row: Frame,
 	ingLabel: TextLabel,
+	craftBtn: TextButton?,
+	station: string,
 }
 
 local recipeRows: { RecipeRow } = {}
 
-for i, recipe in ipairs(CraftingConfig.Recipes) do
+for i, recipe in ipairs(allRecipes) do
 	local row = Instance.new("Frame")
 	row.Name             = recipe.id
 	row.LayoutOrder      = i
@@ -526,8 +596,21 @@ for i, recipe in ipairs(CraftingConfig.Recipes) do
 	row.Parent           = craftScroll
 	addCorner(row, 6)
 
+	-- Station badge (top-right)
+	local badgeColor = recipe.station == "hand" and ACCENT or Color3.fromRGB(200, 120, 40)
+	local badgeText  = recipe.station == "hand" and "HAND" or "CAMPFIRE"
 	makeLabel(row, {
-		Size           = UDim2.new(1, -90, 0, 22),
+		Size           = UDim2.new(0, 68, 0, 16),
+		Position       = UDim2.new(1, (recipe.station == "hand" and -148 or -80), 0, 4),
+		Text           = badgeText,
+		TextColor3     = badgeColor,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextSize       = 9,
+		Font           = FONTB,
+	})
+
+	makeLabel(row, {
+		Size           = UDim2.new(1, -150, 0, 22),
 		Position       = UDim2.new(0, 8, 0, 4),
 		Text           = recipe.displayName,
 		Font           = FONTB,
@@ -546,22 +629,47 @@ for i, recipe in ipairs(CraftingConfig.Recipes) do
 		TextWrapped    = true,
 	})
 
-	local craftBtn = makeButton(row, {
-		Size             = UDim2.new(0, 72, 0, 30),
-		Position         = UDim2.new(1, -80, 0.5, -15),
-		BackgroundColor3 = ACCENT,
-		Text             = "CRAFT",
-		TextSize         = 12,
+	local craftBtn: TextButton? = nil
+	if recipe.station == "hand" then
+		craftBtn = makeButton(row, {
+			Size             = UDim2.new(0, 72, 0, 30),
+			Position         = UDim2.new(1, -80, 0.5, -15),
+			BackgroundColor3 = ACCENT,
+			Text             = "CRAFT",
+			TextSize         = 12,
+		})
+		addCorner(craftBtn, 5)
+
+		local capturedId = recipe.id
+		craftBtn.Activated:Connect(function()
+			craftItemRemote:FireServer(capturedId)
+		end)
+	end
+
+	table.insert(recipeRows, {
+		row      = row,
+		ingLabel = ingLabel,
+		craftBtn = craftBtn,
+		station  = recipe.station,
 	})
-	addCorner(craftBtn, 5)
-
-	local capturedId = recipe.id
-	craftBtn.Activated:Connect(function()
-		craftItemRemote:FireServer(capturedId)
-	end)
-
-	table.insert(recipeRows, { craftBtn = craftBtn, ingLabel = ingLabel })
 end
+
+-- ── Filter handlers ──────────────────────────────────────────────────────
+
+local function setRecipeFilter(filter: string)
+	recipeFilter = filter
+	filterAllBtn.TextColor3        = filter == "all"      and TEXT or MUTED
+	filterAllBtn.BackgroundColor3  = filter == "all"      and BG3  or BG2
+	filterHandBtn.TextColor3       = filter == "hand"     and TEXT or MUTED
+	filterHandBtn.BackgroundColor3 = filter == "hand"     and BG3  or BG2
+	filterCampBtn.TextColor3       = filter == "campfire" and TEXT or MUTED
+	filterCampBtn.BackgroundColor3 = filter == "campfire" and BG3  or BG2
+	if refreshRecipeBook then refreshRecipeBook() end
+end
+
+filterAllBtn.Activated:Connect(function()  setRecipeFilter("all") end)
+filterHandBtn.Activated:Connect(function() setRecipeFilter("hand") end)
+filterCampBtn.Activated:Connect(function() setRecipeFilter("campfire") end)
 
 -- ── CHARACTER PANE ────────────────────────────────────────────────────────
 
@@ -840,6 +948,32 @@ UserInputService.InputEnded:Connect(function(input)
 						end
 						pinned = true
 						break
+					end
+				end
+			end
+		end
+
+		-- Check if dropped on campfire input slot.
+		if not pinned then
+			local cookPanel = hud and hud:FindFirstChild("CookingPanel")
+			if cookPanel and cookPanel.Visible then
+				local inputSlot = cookPanel:FindFirstChild("InputSlot")
+				if inputSlot then
+					local ap = inputSlot.AbsolutePosition
+					local as = inputSlot.AbsoluteSize
+					if pos.X >= ap.X and pos.X <= ap.X + as.X
+						and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+					then
+						local campfireRef = cookPanel:FindFirstChild("ActiveCampfire")
+						local campfireModel = campfireRef and campfireRef.Value
+						if campfireModel then
+							local itemId = getSlotItemId(fromSlot)
+							local qty    = getSlotQty(fromSlot)
+							if itemId ~= "" and qty > 0 then
+								campfireAddRemote:FireServer(campfireModel, itemId, qty)
+								pinned = true
+							end
+						end
 					end
 				end
 			end
@@ -1127,33 +1261,52 @@ local function refreshCharacter()
 	end
 end
 
-local function refreshCraftList()
-	for i, row in ipairs(recipeRows) do
-		local recipe   = CraftingConfig.Recipes[i]
-		local canCraft = true
-		local parts: { string } = {}
+refreshRecipeBook = function()
+	for i, rowData in ipairs(recipeRows) do
+		local recipe = allRecipes[i]
 
-		for _, ing in ipairs(recipe.ingredients) do
-			local have    = getTotalQty(ing.itemId)
-			local ingDef  = ItemRegistry.get(ing.itemId)
-			local ingName = ingDef and ingDef.displayName or ing.itemId
-			local enough  = have >= ing.qty
-			if not enough then canCraft = false end
-			local marker = enough and "[ok]" or "[need]"
-			table.insert(parts, string.format("%dx %s %s", ing.qty, ingName, marker))
+		-- Filter visibility
+		rowData.row.Visible = (recipeFilter == "all") or (recipeFilter == recipe.station)
+
+		if recipe.station == "hand" and recipe.ingredients then
+			-- Hand-craft: show ingredient availability + CRAFT button
+			local canCraft = true
+			local parts: { string } = {}
+
+			for _, ing in ipairs(recipe.ingredients) do
+				local have    = getTotalQty(ing.itemId)
+				local ingDef  = ItemRegistry.get(ing.itemId)
+				local ingName = ingDef and ingDef.displayName or ing.itemId
+				local enough  = have >= ing.qty
+				if not enough then canCraft = false end
+				local marker = enough and "[ok]" or "[need]"
+				table.insert(parts, string.format("%dx %s %s", ing.qty, ingName, marker))
+			end
+
+			rowData.ingLabel.Text = table.concat(parts, "   ")
+			if rowData.craftBtn then
+				rowData.craftBtn.BackgroundColor3 = canCraft and ACCENT or Color3.fromRGB(45, 50, 70)
+				rowData.craftBtn.TextColor3       = canCraft and TEXT   or MUTED
+				rowData.craftBtn.Active           = canCraft
+			end
+		else
+			-- Station recipe: input → output + cook time
+			local inputDef  = ItemRegistry.get(recipe.inputId or "")
+			local outputDef = ItemRegistry.get(recipe.output.itemId)
+			local inputName  = inputDef and inputDef.displayName or (recipe.inputId or "?")
+			local outputName = outputDef and outputDef.displayName or recipe.output.itemId
+			local cookTime   = recipe.cookSeconds or 4
+			rowData.ingLabel.Text = string.format(
+				"1x %s → 1x %s (%ds)", inputName, outputName, cookTime
+			)
 		end
-
-		row.ingLabel.Text             = table.concat(parts, "   ")
-		row.craftBtn.BackgroundColor3 = canCraft and ACCENT or Color3.fromRGB(45, 50, 70)
-		row.craftBtn.TextColor3       = canCraft and TEXT   or MUTED
-		row.craftBtn.Active           = canCraft
 	end
 end
 
 local function refreshAll()
 	refreshItemList()
 	refreshWeight()
-	refreshCraftList()
+	refreshRecipeBook()
 	refreshCharacter()
 end
 
@@ -1217,7 +1370,7 @@ player.AttributeChanged:Connect(function(attrName: string)
 	then
 		refreshItemList()
 		refreshWeight()
-		refreshCraftList()
+		refreshRecipeBook()
 	elseif attrName == "HotbarEquippedSlot"
 		or attrName:sub(1, 10) == "HotbarSlot"
 	then

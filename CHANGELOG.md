@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.7.0] - 2026-03-08
+
+### Added
+- **Campfire cooking system** — ARK/Minecraft-style station cooking. Drag raw food into campfire input slot, it cooks over time on the server, cooked food appears in output slot ready to take. Shared/public — anyone nearby can add or take items
+- **CampfireService** (`CampfireService.server.luau`) — manages per-campfire inventory state (input/output slots), autonomous Heartbeat cooking loop, and viewer tracking for state broadcasts
+- **CookingConfig** (`CookingConfig.luau`) — campfire recipe definitions mapping raw items to cooked outputs with cook times, station type, and skill level
+- **Campfire cooking UI** — floating panel above hotbar with input/output slots, animated progress bar, timer text, and food picker popup. Opens via ProximityPrompt (E key) on placed campfires
+- **Recipe Book tab** — CRAFT tab replaced with RECIPES tab showing all recipes (hand-craft + cooking) with station badges (HAND/CAMPFIRE), filter bar (ALL/HAND/CAMPFIRE), and ingredient availability. Hand-craft recipes remain interactive with CRAFT button; station recipes are read-only reference
+- **Drag-and-drop to campfire** — drag food from inventory directly onto campfire input slot (cross-ScreenGui hit detection via ObjectValue reference)
+- **ProximityPrompt on campfires** — placed campfires get a "Cook" ProximityPrompt for opening the cooking UI, independent of sit mechanic
+- **Cross-service inventory BindableFunctions** — `InventoryAdd`, `InventoryRemove`, `InventoryGetQty` in ServerBindables for CampfireService to manipulate player inventories
+- **Poison on raw food** — `onConsume.poison` field in ItemRegistry triggers poison bar accumulation when eating raw/toxic food
+- **Loot bag on campfire despawn** — campfires with items in input/output drop a loot bag when auto-deleted
+- New items: `raw_fish` (hunger=12, poison=10), `cooked_fish` (hunger=25)
+- Updated `raw_meat` with `poison = 5` (food poisoning risk from raw meat)
+- New remote events: `OpenCampfire`, `CampfireState`, `CampfireAddItem`, `CampfireTakeItem`
+
+### Changed
+- `CraftingConfig` recipes now include `station = "hand"` and `skillLevel = 1` fields for Recipe Book display uniformity
+- `GameplayConfig.Campfire` expanded with `DefaultCookSeconds`, `MaxInputStack`, `MaxOutputStack`, `InteractRange`
+- `InventoryService` UseItem handler now includes `poison` in ConsumeEffect payload
+- `PlayerStateService` ConsumeEffect handler now processes poison from food consumption (activates poison status effect)
+- CRAFT tab renamed to RECIPES with unified recipe list and filter system
+
+---
+
 ## [0.6.0] - 2026-03-08
 
 ### Added

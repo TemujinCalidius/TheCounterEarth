@@ -41,6 +41,10 @@ return {
 		EnergyRegenPerSecond = 5,
 		PlacementMaxRange = 20,        -- studs from player
 		InactiveLifetimeSeconds = 600, -- 10 min with no player nearby → auto-delete
+		DefaultCookSeconds = 4,        -- fallback if recipe omits cookSeconds
+		MaxInputStack = 10,            -- max items in campfire input slot
+		MaxOutputStack = 10,           -- max items in campfire output slot
+		InteractRange = 10,            -- studs to open campfire UI (same as SitRadius)
 	},
 
 	Inventory = {

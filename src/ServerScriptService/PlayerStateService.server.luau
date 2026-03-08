@@ -1251,7 +1251,10 @@ consumeEffectEvent.Event:Connect(function(player: Player, effects: { [string]: a
 	if type(effects.fatigue) == "number" then setFatigue(player, state, state.fatigue + effects.fatigue) end
 	if type(effects.energy)  == "number" then setEnergy(player,  state, state.energy  + effects.energy)  end
 	if type(effects.blood)   == "number" then setBlood(player,   state, state.blood   + effects.blood)   end
-	if type(effects.poison)  == "number" then setPoison(player,  state, state.poison  + effects.poison)  end
+	if type(effects.poison) == "number" and effects.poison > 0 then
+		setPoison(player, state, state.poison + effects.poison)
+		if not state.poisonStartTime then startPoison(player, state) end
+	end
 	if effects.stopBleed  and state.bleedStacks > 0  then stopBleeding(player, state) end
 	if effects.stopPoison and state.poisonStartTime then stopPoison(player, state)   end
 end)
