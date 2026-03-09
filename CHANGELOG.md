@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.8.0] - 2026-03-09
+
+### Added
+- **Bedroll system** — craftable placeable that must be placed near a campfire. Sets respawn point on death. One bedroll per player (placing a new one destroys the old one)
+- **Death respawn at bedroll** — dying with an active bedroll teleports you back to it on respawn
+- **Relog position persistence** — player's position is saved to DataStore on logout. On rejoin, they spawn at their last position (+2 studs Y) instead of default spawn. One-time use, then cleared
+- **Per-item spoilage system** — each perishable item has its own expiry timestamp stored as comma-separated `InvExpires_N` attributes. Items spoil individually based on when they were picked up, converting to `spoiled_food`
+- **Spoilage tick loop** — every 10 seconds, scans all player inventories for expired timestamps. Handles offline catch-up (multiple items can spoil in a single tick)
+- **`spoiled_food` item** — junk material produced when food spoils. Stackable (10), lightweight, tagged for future alchemy use
+- **Bedroll config** — `GameplayConfig.Bedroll` section with `RequiredCampfireRadius` and `KeepCampfireAliveRadius`
+- **Campsite pairing** — bedroll within `KeepCampfireAliveRadius` of campfire = paired. Paired campsites stay alive while the owning player is on the server regardless of distance
+
+### Changed
+- **Profile version bumped to v5** — DataStore now saves `lastPosition` and per-item `expiries` arrays in invSlots entries
+- **v4→v5 migration** — existing perishable items get fresh expiry timers on first load
+- **Campsite cleanup loop** — replaced campfire-only logic with paired campsite logic. Campfires and bedrolls both participate. Owner online + paired = stays alive. Otherwise, 10-min inactivity timer
+- `BrownMushroom` perishSeconds: 900 → 2400 (40 min)
+- `cooked_mushroom` perishSeconds: 1200 → 3600 (1 hour)
+- `addQty` now sets per-item expiry timestamps when adding perishable items
+- `removeQty` trims oldest expiry timestamps when consuming items
+- `splitStack` splits expiry list (oldest N go to new slot)
+- `swapSlots` merges expiry lists on same-item merge, swaps on different-item swap
+- `InvExpires_N` attribute changes now trigger profileDirty for auto-save
+- Item rename migration: `raw_fish`, `cooked_fish`, `raw_meat`, `cooked_meat` → `spoiled_food`
+
+### Removed
+- `raw_meat`, `cooked_meat`, `raw_fish`, `cooked_fish` items (test items not yet in game world)
+- `raw_meat` and `raw_fish` cooking recipes from CookingConfig
+
+---
+
 ## [0.7.0] - 2026-03-08
 
 ### Added

@@ -57,14 +57,19 @@ The central server authority for player data. Owns the `Remotes` folder.
 - Poison bar (0 → 100): fills while IsPoisoned, decays when source removed. Health drain scales with level
 - Bleed stacking: multiple wounds = faster blood drain. Natural clotting removes one stack per NaturalStopSeconds
 - Weight-based speed penalty: SlowThreshold (80%) -> CrawlThreshold (100%) -> StopThreshold (150%)
+- Bedroll respawn: tracks bedroll placement per player, teleports to bedroll on death respawn
+- Relog teleport: saves player position to DataStore, teleports back on rejoin (one-time use)
+- Campsite cleanup: paired campfire+bedroll stays alive while owner is online; otherwise 10-min inactivity timer
 - Credits: DataStore persistence with legacy store migration
 - RPG stat attributes (STR, AGI, CON, WIS, INT, CHA) — initialized to 0, reserved for future SkillSystem
 
 **DataStore:**
 - Store name: `PlayerProfileV2`, key format: `player_{userId}`
-- Profile version: 4
+- Profile version: 5
 - Auto-saves every 60s when dirty, force-saves on leave and BindToClose
-- Saves: credits, energy, health, hunger, thirst, fatigue, blood, poison, bleed stacks, active effect flags, hotbar inventory, slot-based inventory
+- Saves: credits, energy, health, hunger, thirst, fatigue, blood, poison, bleed stacks, active effect flags, hotbar inventory, slot-based inventory, per-item expiry timestamps, last position
+- `lastPosition` saved as `{x,y,z}` from HumanoidRootPart on save; used for relog teleport (one-time)
+- `invSlots[].expiries` saved as array of `os.time()` timestamps per slot
 
 **Remote Events (created here):**
 - `SprintIntent` — client tells server sprint on/off
@@ -87,13 +92,26 @@ Slot-based inventory system using player attributes.
 **Data Model:**
 - `InvSlot_N` (string attribute) — itemId at slot N, nil if empty
 - `InvQty_N` (number attribute) — quantity at slot N
+- `InvExpires_N` (string attribute) — comma-separated `os.time()` expiry timestamps, sorted ascending. One per item in the stack.
 - `MaxInvSlots` (number attribute) — caps how many slots exist (default: 5 pocket slots)
 - `CarryWeight` / `MaxCarryWeight` — weight tracking attributes
 
 **Operations:**
-- `addQty()` — adds items, first filling partial stacks then empty slots; checks weight limit
-- `removeQty()` — removes items from highest slots first
+- `addQty()` — adds items, first filling partial stacks then empty slots; checks weight limit. Sets per-item expiry timestamps for perishable items.
+- `removeQty()` — removes items from highest slots first, trims oldest expiry timestamps
 - `refreshWeight()` — recalculates CarryWeight from all slots
+
+**Spoilage System:**
+- Per-item expiry timestamps stored as comma-separated string in `InvExpires_N`
+- Heartbeat loop (every 10s): scans all players' slots, counts expired timestamps, converts to `spoiled_food`
+- Handles offline catch-up: multiple items can spoil in a single tick
+- Split preserves timestamps: oldest N go to new slot
+- Merge combines and re-sorts timestamp lists
+- DataStore: saved as `expiries` array in invSlots entries
+
+**Bedroll Placement:**
+- Must be placed within `RequiredCampfireRadius` of an existing campfire
+- One bedroll per player: placing a new one destroys the old one
 
 **Remote Events (created here):**
 - `UseItem` — consume one stack item (applies health/hunger/thirst/fatigue/energy effects)
@@ -260,6 +278,7 @@ All gameplay values live in `GameplayConfig.luau` — never hardcoded in scripts
 | Inventory | PocketSlots=5, BasePocketWeight=5kg |
 | Weight | Slow@80%, Crawl@100%, Stop@150% |
 | Death Bag | MaxWeight=999 (no limit), Lifetime=300s |
+| Bedroll | RequiredCampfireRadius=15, KeepCampfireAliveRadius=15 |
 
 Survival stat values live in `StatsConfig.luau` (hunger, thirst, fatigue drain rates, empty penalties, etc.).
 

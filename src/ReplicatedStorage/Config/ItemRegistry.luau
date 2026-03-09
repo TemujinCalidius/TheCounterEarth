@@ -97,7 +97,7 @@ Items.BrownMushroom = {
 	weight = 0.1,
 	slotSize = { w = 1, h = 1 },
 	category = "food",
-	perishSeconds = 900,
+	perishSeconds = 2400,
 	onConsume = { health = 5, hunger = 10, thirst = 0 },
 	tags = { "food", "raw", "forage", "scatter" },
 	icon = "rbxassetid://136772121686318",
@@ -256,65 +256,21 @@ Items.cooked_mushroom = {
 	weight = 0.1,
 	slotSize = { w = 1, h = 1 },
 	category = "food",
-	perishSeconds = 1200,
+	perishSeconds = 3600,
 	onConsume = { health = 10, hunger = 18, thirst = 2 },
 	tags = { "food", "cooked" },
 	icon = "",
 }
 
-Items.raw_meat = {
-	id = "raw_meat",
-	displayName = "Raw Meat",
-	description = "Raw animal meat. Cook it — eating raw risks illness.",
-	stackMax = 5,
-	weight = 0.5,
+Items.spoiled_food = {
+	id = "spoiled_food",
+	displayName = "Spoiled Food",
+	description = "Rotten remains. Useless as food, but an alchemist might find a use.",
+	stackMax = 10,
+	weight = 0.1,
 	slotSize = { w = 1, h = 1 },
-	category = "food",
-	perishSeconds = 600,
-	onConsume = { health = 2, hunger = 8, thirst = -5, poison = 5 },
-	tags = { "food", "raw", "meat" },
-	icon = "",
-}
-
-Items.cooked_meat = {
-	id = "cooked_meat",
-	displayName = "Cooked Meat",
-	description = "Properly cooked meat. Hearty and filling.",
-	stackMax = 5,
-	weight = 0.4,
-	slotSize = { w = 1, h = 1 },
-	category = "food",
-	perishSeconds = 3600,
-	onConsume = { health = 20, hunger = 35, thirst = -5 },
-	tags = { "food", "cooked", "meat" },
-	icon = "",
-}
-
-Items.raw_fish = {
-	id = "raw_fish",
-	displayName = "Raw Fish",
-	description = "A fresh catch. Cook it unless you enjoy food poisoning.",
-	stackMax = 5,
-	weight = 0.4,
-	slotSize = { w = 1, h = 1 },
-	category = "food",
-	perishSeconds = 600,
-	onConsume = { health = 2, hunger = 12, thirst = -8, poison = 10 },
-	tags = { "food", "raw", "fish" },
-	icon = "",
-}
-
-Items.cooked_fish = {
-	id = "cooked_fish",
-	displayName = "Cooked Fish",
-	description = "Well-cooked fish. Safe to eat and satisfying.",
-	stackMax = 5,
-	weight = 0.35,
-	slotSize = { w = 1, h = 1 },
-	category = "food",
-	perishSeconds = 1800,
-	onConsume = { health = 15, hunger = 25, thirst = -4 },
-	tags = { "food", "cooked", "fish" },
+	category = "material",
+	tags = { "junk", "alchemy" },
 	icon = "",
 }
 

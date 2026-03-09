@@ -16,19 +16,5 @@ return {
 			skillLevel  = 1,
 			displayName = "Cooked Mushroom",
 		},
-		raw_meat = {
-			output      = "cooked_meat",
-			cookSeconds = 6,
-			station     = "campfire",
-			skillLevel  = 1,
-			displayName = "Cooked Meat",
-		},
-		raw_fish = {
-			output      = "cooked_fish",
-			cookSeconds = 5,
-			station     = "campfire",
-			skillLevel  = 1,
-			displayName = "Cooked Fish",
-		},
 	},
 }

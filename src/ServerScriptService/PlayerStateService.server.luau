@@ -7,7 +7,9 @@ local ServerStorage = game:GetService("ServerStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
 local StatsConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
 
-local PROFILE_VERSION = 4
+local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+
+local PROFILE_VERSION = 5
 local LEGACY_CREDITS_STORE_NAME = "CreditsV1"
 
 local useDataStore = (not RunService:IsStudio()) or Config.Credits.UseDataStoreInStudio
@@ -96,6 +98,9 @@ type PlayerState = {
 	poisonStartTime: number?,  -- os.time() when poisoned started; nil = not poisoned
 	campfireIdleTime: number,  -- seconds standing still (resets on movement)
 	sittingAtCampfire: boolean, -- true while auto-sitting near a campfire
+	bedrollSpawnCFrame: CFrame?,   -- CFrame of player's bedroll (set on placement, cleared on destroy)
+	deathRespawnCFrame: CFrame?,   -- snapshot of bedrollSpawnCFrame at time of death
+	lastPosition: { x: number, y: number, z: number }?,  -- saved logout position for relog teleport
 }
 
 local playerStates: { [Player]: PlayerState } = {}
@@ -168,6 +173,10 @@ local ITEM_RENAMES: { [string]: string } = {
 	twig_axe      = "stone_axe",
 	twig_knife    = "stone_knife",
 	satchel_cloth = "satchel_reed",
+	raw_fish      = "spoiled_food",
+	cooked_fish   = "spoiled_food",
+	raw_meat      = "spoiled_food",
+	cooked_meat   = "spoiled_food",
 }
 
 local function migrateItemId(id: string): string
@@ -267,8 +276,8 @@ local function makeDefaultProfile(): { [string]: any }
 end
 
 -- Parses invSlots from saved data, migrating from the old items dict if needed.
-local function decodeInvSlots(raw: any): { { itemId: string, qty: number } }
-	local result: { { itemId: string, qty: number } } = {}
+local function decodeInvSlots(raw: any): { { itemId: string, qty: number, expiries: { number }? } }
+	local result: { { itemId: string, qty: number, expiries: { number }? } } = {}
 	if type(raw) ~= "table" then return result end
 
 	if type(raw.invSlots) == "table" then
@@ -279,7 +288,19 @@ local function decodeInvSlots(raw: any): { { itemId: string, qty: number } }
 			then
 				local clean = migrateItemId(sanitizeItemId(entry.itemId))
 				if clean ~= "" and entry.qty > 0 then
-					table.insert(result, { itemId = clean, qty = math.floor(entry.qty + 0.5) })
+					local qty = math.floor(entry.qty + 0.5)
+					local expiries: { number }? = nil
+					if type(entry.expiries) == "table" then
+						expiries = {}
+						for _, ts in ipairs(entry.expiries) do
+							if type(ts) == "number" then
+								table.insert(expiries, ts)
+							end
+						end
+						table.sort(expiries)
+						if #expiries == 0 then expiries = nil end
+					end
+					table.insert(result, { itemId = clean, qty = qty, expiries = expiries })
 				end
 			end
 		end
@@ -352,6 +373,14 @@ local function decodeProfile(raw: any): { [string]: any }?
 		inventoryRaw = raw.Inventory
 	end
 
+	local lastPosition: { x: number, y: number, z: number }? = nil
+	if type(raw.lastPosition) == "table" then
+		local lp = raw.lastPosition
+		if type(lp.x) == "number" and type(lp.y) == "number" and type(lp.z) == "number" then
+			lastPosition = { x = lp.x, y = lp.y, z = lp.z }
+		end
+	end
+
 	return {
 		version = tonumber(raw.version) or tonumber(raw.Version) or PROFILE_VERSION,
 		credits = math.floor(credits + 0.5),
@@ -369,6 +398,7 @@ local function decodeProfile(raw: any): { [string]: any }?
 		},
 		inventory = decodeInventory(inventoryRaw),
 		invSlots  = decodeInvSlots(raw),
+		lastPosition = lastPosition,
 	}
 end
 
@@ -715,13 +745,40 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 
 	-- Collect slot-based inventory from player attributes.
 	local maxSlots = math.max(1, math.floor(tonumber(player:GetAttribute("MaxInvSlots")) or 5))
-	local invSlots: { { itemId: string, qty: number } } = {}
+	local invSlots: { { itemId: string, qty: number, expiries: { number }? } } = {}
 	for n = 1, maxSlots do
 		local itemId = tostring(player:GetAttribute("InvSlot_" .. n) or "")
 		local qty    = math.floor(tonumber(player:GetAttribute("InvQty_" .. n)) or 0)
 		if itemId ~= "" and qty > 0 then
-			table.insert(invSlots, { itemId = itemId, qty = qty })
+			local entry: { itemId: string, qty: number, expiries: { number }? } = { itemId = itemId, qty = qty }
+			-- Save per-item expiry timestamps
+			local expiryStr = player:GetAttribute("InvExpires_" .. n)
+			if type(expiryStr) == "string" and expiryStr ~= "" then
+				local expiries: { number } = {}
+				for ts in string.gmatch(expiryStr, "[^,]+") do
+					local num = tonumber(ts)
+					if num then table.insert(expiries, num) end
+				end
+				if #expiries > 0 then
+					table.sort(expiries)
+					entry.expiries = expiries
+				end
+			end
+			table.insert(invSlots, entry)
 		end
+	end
+
+	-- Capture player position for relog teleport
+	local lastPosition: { x: number, y: number, z: number }? = nil
+	local character = player.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+	if rootPart then
+		local pos = rootPart.Position
+		lastPosition = {
+			x = math.round(pos.X * 10) / 10,
+			y = math.round(pos.Y * 10) / 10,
+			z = math.round(pos.Z * 10) / 10,
+		}
 	end
 
 	return {
@@ -741,6 +798,7 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 		},
 		inventory = readInventoryFromPlayer(player),
 		invSlots  = invSlots,
+		lastPosition = lastPosition,
 	}
 end
 
@@ -888,12 +946,39 @@ local function setupCharacter(player: Player, character: Model)
 		if state.poisonStartTime then stopPoison(player, state) end
 		setBlood(player, state, StatsConfig.Blood.Max)
 		setPoison(player, state, 0)
+		-- Snapshot bedroll for respawn teleport
+		state.deathRespawnCFrame = state.bedrollSpawnCFrame
 		state.profileDirty = true
 	end))
 
 	-- Reattach particle effects if player spawns while still bleeding/poisoned
 	if state.bleedStartTime then attachBleedEffect(player) end
 	if state.poisonStartTime then attachPoisonEffect(player) end
+
+	-- Respawn teleport priority:
+	-- 1. Death respawn → bedroll CFrame (if died with bedroll active)
+	-- 2. Relog → lastPosition (saved logout position, one-time use)
+	-- 3. Default Roblox spawn
+	local teleportCFrame: CFrame? = nil
+	if state.deathRespawnCFrame then
+		teleportCFrame = state.deathRespawnCFrame
+		state.deathRespawnCFrame = nil
+	elseif state.lastPosition then
+		local lp = state.lastPosition
+		teleportCFrame = CFrame.new(lp.x, lp.y + 2, lp.z)  -- +2 studs Y to avoid clipping
+		state.lastPosition = nil  -- one-time use
+	end
+
+	if teleportCFrame then
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root then
+			task.defer(function()
+				if root.Parent then
+					root.CFrame = teleportCFrame
+				end
+			end)
+		end
+	end
 end
 
 local function setupPlayer(player: Player)
@@ -922,6 +1007,9 @@ local function setupPlayer(player: Player)
 		poisonStartTime = if profile.survival.IsPoisoned then os.time() else nil,
 		campfireIdleTime = 0,
 		sittingAtCampfire = false,
+		bedrollSpawnCFrame = nil,
+		deathRespawnCFrame = nil,
+		lastPosition = profile.lastPosition,
 	}
 
 	playerStates[player] = state
@@ -961,12 +1049,35 @@ local function setupPlayer(player: Player)
 	writeInventoryAttributes(player, decodeInventory(profile.inventory))
 
 	-- Restore slot-based inventory from saved profile.
+	local isUpgradeToV5 = (tonumber(profile.version) or 0) < 5
 	if type(profile.invSlots) == "table" then
 		for n, entry in ipairs(profile.invSlots) do
 			if n > pocketSlots then break end
 			if type(entry.itemId) == "string" and entry.itemId ~= "" and type(entry.qty) == "number" then
+				local qty = math.floor(entry.qty + 0.5)
 				player:SetAttribute("InvSlot_" .. n, entry.itemId)
-				player:SetAttribute("InvQty_" .. n,  math.floor(entry.qty + 0.5))
+				player:SetAttribute("InvQty_" .. n,  qty)
+
+				-- Restore or assign per-item expiry timestamps
+				if entry.expiries and #entry.expiries > 0 then
+					-- Saved expiries exist — restore them
+					local parts = {}
+					for _, ts in ipairs(entry.expiries) do
+						table.insert(parts, tostring(math.floor(ts)))
+					end
+					player:SetAttribute("InvExpires_" .. n, table.concat(parts, ","))
+				elseif isUpgradeToV5 then
+					-- v4→v5 migration: assign fresh timers to existing perishable items
+					local def = ItemRegistry.get(entry.itemId)
+					if def and def.perishSeconds then
+						local now = os.time()
+						local parts = {}
+						for _ = 1, qty do
+							table.insert(parts, tostring(now + def.perishSeconds))
+						end
+						player:SetAttribute("InvExpires_" .. n, table.concat(parts, ","))
+					end
+				end
 			end
 		end
 	end
@@ -1008,7 +1119,7 @@ local function setupPlayer(player: Player)
 
 	-- Mark dirty when any inventory slot changes.
 	table.insert(state.playerConnections, player.AttributeChanged:Connect(function(attrName)
-		if attrName:sub(1, 9) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" then
+		if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" or attrName:sub(1, 11) == "InvExpires_" then
 			state.profileDirty = true
 		end
 	end))
@@ -1032,6 +1143,47 @@ local function cleanupPlayer(player: Player)
 	clearPlayerConnections(state)
 	playerStates[player] = nil
 end
+
+-- ── Bedroll spawn tracking ────────────────────────────────────────────────
+-- When a bedroll is placed, record its CFrame for the owning player.
+-- When it's destroyed, clear the reference.
+
+local function trackBedroll(model: Model)
+	if model:GetAttribute("_PlacedItem") ~= "bedroll" then return end
+	local ownerId = model:GetAttribute("_PlacedBy")
+	if type(ownerId) ~= "number" then return end
+
+	local primary = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+	if not primary then return end
+
+	-- Find owning player and set their bedroll spawn
+	for player, state in pairs(playerStates) do
+		if player.UserId == ownerId then
+			state.bedrollSpawnCFrame = primary.CFrame
+			break
+		end
+	end
+
+	-- When bedroll is destroyed, clear the spawn
+	model.Destroying:Connect(function()
+		for player, state in pairs(playerStates) do
+			if player.UserId == ownerId then
+				state.bedrollSpawnCFrame = nil
+				break
+			end
+		end
+	end)
+end
+
+-- Scan existing bedrolls
+for _, obj in ipairs(workspace:GetChildren()) do
+	if obj:IsA("Model") then trackBedroll(obj) end
+end
+workspace.ChildAdded:Connect(function(child)
+	if child:IsA("Model") then
+		task.defer(function() trackBedroll(child) end)
+	end
+end)
 
 sprintIntentRemote.OnServerEvent:Connect(function(player, wantsToSprint)
 	if type(wantsToSprint) ~= "boolean" then
@@ -1211,31 +1363,78 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		end
 	end
 
-	-- ── Campfire auto-cleanup (runs once per Heartbeat, outside player loop) ──
-	for _, obj in ipairs(workspace:GetChildren()) do
-		if obj:IsA("Model") and obj:GetAttribute("_PlacedItem") == "campfire" then
-			local lastOccupied = obj:GetAttribute("_lastOccupiedTime")
-			if lastOccupied then
-				-- Check if any player is nearby
-				local anyoneNear = false
-				local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-				if primary then
-					for _, plr in ipairs(Players:GetPlayers()) do
-						local char = plr.Character
-						local root = char and char:FindFirstChild("HumanoidRootPart")
-						if root and (root.Position - primary.Position).Magnitude <= CAMPFIRE_SIT_RADIUS then
-							anyoneNear = true
-							break
-						end
-					end
-				end
+	-- ── Campsite auto-cleanup (runs once per Heartbeat, outside player loop) ──
+	local bedrollRadius = (Config.Bedroll and Config.Bedroll.KeepCampfireAliveRadius) or 15
 
-				if anyoneNear then
-					obj:SetAttribute("_lastOccupiedTime", now)
-				elseif now - lastOccupied >= CAMPFIRE_INACTIVE_LIFE then
-					obj:Destroy()
+	for _, obj in ipairs(workspace:GetChildren()) do
+		local placedItem = obj:IsA("Model") and obj:GetAttribute("_PlacedItem")
+		if not placedItem then continue end
+		if placedItem ~= "campfire" and placedItem ~= "bedroll" then continue end
+
+		local lastOccupied = obj:GetAttribute("_lastOccupiedTime")
+		if not lastOccupied then continue end
+
+		local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+		if not primary then continue end
+
+		local ownerId = obj:GetAttribute("_PlacedBy")
+
+		-- Check if owner is still on server (keeps campsite alive regardless of distance)
+		local ownerOnline = false
+		if type(ownerId) == "number" then
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr.UserId == ownerId then
+					ownerOnline = true
+					break
 				end
 			end
+		end
+
+		-- Check if paired with a bedroll (campfire) or campfire (bedroll)
+		local hasPair = false
+		if placedItem == "campfire" then
+			for _, other in ipairs(workspace:GetChildren()) do
+				if other:IsA("Model") and other:GetAttribute("_PlacedItem") == "bedroll" then
+					local otherPart = other.PrimaryPart or other:FindFirstChildWhichIsA("BasePart")
+					if otherPart and (otherPart.Position - primary.Position).Magnitude <= bedrollRadius then
+						hasPair = true
+						break
+					end
+				end
+			end
+		elseif placedItem == "bedroll" then
+			for _, other in ipairs(workspace:GetChildren()) do
+				if other:IsA("Model") and other:GetAttribute("_PlacedItem") == "campfire" then
+					local otherPart = other.PrimaryPart or other:FindFirstChildWhichIsA("BasePart")
+					if otherPart and (otherPart.Position - primary.Position).Magnitude <= bedrollRadius then
+						hasPair = true
+						break
+					end
+				end
+			end
+		end
+
+		-- Paired + owner online → keep alive
+		if hasPair and ownerOnline then
+			obj:SetAttribute("_lastOccupiedTime", now)
+			continue
+		end
+
+		-- Check if any player is nearby
+		local anyoneNear = false
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local char = plr.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and (root.Position - primary.Position).Magnitude <= CAMPFIRE_SIT_RADIUS then
+				anyoneNear = true
+				break
+			end
+		end
+
+		if anyoneNear then
+			obj:SetAttribute("_lastOccupiedTime", now)
+		elseif now - lastOccupied >= CAMPFIRE_INACTIVE_LIFE then
+			obj:Destroy()
 		end
 	end
 end)

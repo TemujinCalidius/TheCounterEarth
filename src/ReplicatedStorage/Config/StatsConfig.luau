@@ -57,7 +57,7 @@ return {
 
 	-- -------------------------------------------------------------------------
 	-- Fatigue  (long-term tiredness — separate from short-term Energy)
-	-- Builds up over hours of play. Sleeping at a bedroll or campfire clears it.
+	-- Builds up over hours of play. Sleeping at a bedroll clears it.
 	-- -------------------------------------------------------------------------
 	Fatigue = {
 		Max        = 100,
@@ -67,7 +67,7 @@ return {
 		-- Target: fully fatigued after ~1 hour of continuous play
 		DrainPerSecond = 100 / (60 * 60),
 
-		-- Restores while resting (sleeping at campfire/bedroll)
+		-- Restores while resting (sleeping at bedroll near campfire)
 		-- Target: fully restored in ~5 minutes of rest
 		RestorePerSecond = 100 / (5 * 60),
 
@@ -164,7 +164,7 @@ return {
 		HealthRestorePerSecond  = 0.5,
 		HungerRestorePerSecond  = 0,    -- campfire doesn't feed you; cook food for that
 		ThirstRestorePerSecond  = 0,    -- campfire doesn't hydrate you
-		FatigueRestorePerSecond = 100 / (8 * 60), -- resting at fire restores fatigue in ~8 min
+		FatigueRestorePerSecond = 0,    -- campfire doesn't restore fatigue; need a bedroll
 		EnergyCooldownReduction = true, -- energy regen delay is halved near a fire
 	},
 
@@ -190,6 +190,6 @@ return {
 		IsPoisoned      = "IsPoisoned",
 		PoisonStartTime = "PoisonStartTime",
 
-		IsResting       = "IsResting",   -- true while near campfire / on bedroll
+		IsResting       = "IsResting",   -- true while sleeping on bedroll near campfire
 	},
 }

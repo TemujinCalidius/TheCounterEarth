@@ -47,6 +47,11 @@ return {
 		InteractRange = 10,            -- studs to open campfire UI (same as SitRadius)
 	},
 
+	Bedroll = {
+		RequiredCampfireRadius = 15,   -- must place within this range of a campfire
+		KeepCampfireAliveRadius = 15,  -- bedroll↔campfire pairing range
+	},
+
 	Inventory = {
 		-- Base carry weight with no backpack equipped (just pockets), in kg.
 		BasePocketWeight = 5,

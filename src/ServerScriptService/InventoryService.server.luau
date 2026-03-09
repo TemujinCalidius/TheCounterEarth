@@ -21,6 +21,7 @@
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 local ServerStorage     = game:GetService("ServerStorage")
 local Workspace         = game:GetService("Workspace")
 
@@ -115,9 +116,36 @@ local function setSlot(player: Player, n: number, itemId: string, qty: number)
 	if qty <= 0 then
 		player:SetAttribute("InvSlot_" .. n, nil)
 		player:SetAttribute("InvQty_" .. n, nil)
+		player:SetAttribute("InvExpires_" .. n, nil)
 	else
 		player:SetAttribute("InvSlot_" .. n, itemId)
 		player:SetAttribute("InvQty_" .. n, math.floor(qty + 0.5))
+	end
+end
+
+-- ── Per-item expiry helpers ──────────────────────────────────────────────
+
+local function getSlotExpiries(player: Player, n: number): { number }
+	local str = player:GetAttribute("InvExpires_" .. n)
+	if type(str) ~= "string" or str == "" then return {} end
+	local result = {}
+	for ts in string.gmatch(str, "[^,]+") do
+		local num = tonumber(ts)
+		if num then table.insert(result, num) end
+	end
+	table.sort(result)
+	return result
+end
+
+local function setSlotExpiries(player: Player, n: number, expiries: { number }?)
+	if not expiries or #expiries == 0 then
+		player:SetAttribute("InvExpires_" .. n, nil)
+	else
+		local parts = {}
+		for _, ts in ipairs(expiries) do
+			table.insert(parts, tostring(math.floor(ts)))
+		end
+		player:SetAttribute("InvExpires_" .. n, table.concat(parts, ","))
 	end
 end
 
@@ -164,7 +192,9 @@ local function addQty(player: Player, itemId: string, amount: number): boolean
 
 	local maxSlots  = getMaxSlots(player)
 	local remaining = amount
+	local perishSec = def.perishSeconds  -- nil if not perishable
 
+	-- Fill partial stacks first
 	for n = 1, maxSlots do
 		if remaining <= 0 then break end
 		if getSlotItemId(player, n) == itemId then
@@ -172,16 +202,34 @@ local function addQty(player: Player, itemId: string, amount: number): boolean
 			local canAdd = math.min(remaining, def.stackMax - qty)
 			if canAdd > 0 then
 				setSlot(player, n, itemId, qty + canAdd)
+				if perishSec then
+					local expiries = getSlotExpiries(player, n)
+					local now = os.time()
+					for _ = 1, canAdd do
+						table.insert(expiries, now + perishSec)
+					end
+					table.sort(expiries)
+					setSlotExpiries(player, n, expiries)
+				end
 				remaining -= canAdd
 			end
 		end
 	end
 
+	-- Fill empty slots
 	for n = 1, maxSlots do
 		if remaining <= 0 then break end
 		if getSlotItemId(player, n) == "" then
 			local take = math.min(remaining, def.stackMax)
 			setSlot(player, n, itemId, take)
+			if perishSec then
+				local now = os.time()
+				local expiries = {}
+				for _ = 1, take do
+					table.insert(expiries, now + perishSec)
+				end
+				setSlotExpiries(player, n, expiries)
+			end
 			remaining -= take
 		end
 	end
@@ -200,7 +248,19 @@ local function removeQty(player: Player, itemId: string, amount: number): boolea
 		if getSlotItemId(player, n) == itemId then
 			local qty  = getSlotQty(player, n)
 			local take = math.min(remaining, qty)
-			setSlot(player, n, itemId, qty - take)
+			local newQty = qty - take
+			-- Trim oldest expiry timestamps (consumed first)
+			if newQty > 0 then
+				local expiries = getSlotExpiries(player, n)
+				if #expiries > 0 then
+					local trimmed = {}
+					for i = take + 1, #expiries do
+						table.insert(trimmed, expiries[i])
+					end
+					setSlotExpiries(player, n, trimmed)
+				end
+			end
+			setSlot(player, n, itemId, newQty)
 			remaining -= take
 		end
 	end
@@ -692,8 +752,22 @@ splitStackRemote.OnServerEvent:Connect(function(player, rawSlot, rawSplitQty)
 	end
 	if not freeSlot then return end
 
+	-- Split expiry list: oldest N go to new slot, rest stay
+	local expiries = getSlotExpiries(player, slot)
+	local splitExpiries = {}
+	local remainExpiries = {}
+	for i, ts in ipairs(expiries) do
+		if i <= splitQty then
+			table.insert(splitExpiries, ts)
+		else
+			table.insert(remainExpiries, ts)
+		end
+	end
+
 	setSlot(player, slot, itemId, qty - splitQty)
+	setSlotExpiries(player, slot, remainExpiries)
 	setSlot(player, freeSlot, itemId, splitQty)
+	setSlotExpiries(player, freeSlot, splitExpiries)
 end)
 
 -- ── SwapSlots (inventory drag-and-drop) ───────────────────────────────────
@@ -717,15 +791,38 @@ swapSlotsRemote.OnServerEvent:Connect(function(player, rawSlotA, rawSlotB)
 		local stackMax = def and def.stackMax or 1
 		local transfer = math.min(qtyA, stackMax - qtyB)
 		if transfer > 0 then
+			-- Merge expiry lists: oldest N from A move to B
+			local expiresA = getSlotExpiries(player, slotA)
+			local expiresB = getSlotExpiries(player, slotB)
+			local keptA = {}
+			if #expiresA > 0 then
+				for i, ts in ipairs(expiresA) do
+					if i <= transfer then
+						table.insert(expiresB, ts)
+					else
+						table.insert(keptA, ts)
+					end
+				end
+				table.sort(expiresB)
+			end
 			setSlot(player, slotB, itemIdB, qtyB + transfer)
-			setSlot(player, slotA, itemIdA, qtyA - transfer)  -- clears slot if 0
+			setSlotExpiries(player, slotB, expiresB)
+			local newQtyA = qtyA - transfer
+			setSlot(player, slotA, itemIdA, newQtyA)
+			if newQtyA > 0 then
+				setSlotExpiries(player, slotA, keptA)
+			end
 		end
 		return
 	end
 
-	-- Different items (or one is empty) → swap.
+	-- Different items (or one is empty) → swap expiry data too.
+	local expiresA = getSlotExpiries(player, slotA)
+	local expiresB = getSlotExpiries(player, slotB)
 	setSlot(player, slotA, itemIdB, qtyB)
+	setSlotExpiries(player, slotA, expiresB)
 	setSlot(player, slotB, itemIdA, qtyA)
+	setSlotExpiries(player, slotB, expiresA)
 end)
 
 -- ── DropItem ──────────────────────────────────────────────────────────────
@@ -772,6 +869,32 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 	if not rootPart then return end
 	if (rawCFrame.Position - rootPart.Position).Magnitude > PLACE_MAX_RANGE then return end
 
+	-- Bedroll: must be placed near a campfire
+	if itemId == "bedroll" then
+		local reqRadius = (GameplayConfig.Bedroll and GameplayConfig.Bedroll.RequiredCampfireRadius) or 15
+		local nearCampfire = false
+		for _, obj in ipairs(Workspace:GetChildren()) do
+			if obj:IsA("Model") and obj:GetAttribute("_PlacedItem") == "campfire" then
+				local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+				if part and (part.Position - rawCFrame.Position).Magnitude <= reqRadius then
+					nearCampfire = true
+					break
+				end
+			end
+		end
+		if not nearCampfire then return end
+
+		-- One bedroll per player: destroy old one
+		for _, obj in ipairs(Workspace:GetChildren()) do
+			if obj:IsA("Model")
+				and obj:GetAttribute("_PlacedItem") == "bedroll"
+				and obj:GetAttribute("_PlacedBy") == player.UserId
+			then
+				obj:Destroy()
+			end
+		end
+	end
+
 	-- Remove from inventory
 	if not removeQty(player, itemId, 1) then return end
 	cleanOrphanedHotbarPins(player)
@@ -817,6 +940,66 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 
 	placed:PivotTo(rawCFrame)
 	placed.Parent = Workspace
+end)
+
+-- ── Spoilage loop ────────────────────────────────────────────────────────
+-- Every 10 seconds, scan all players' inventory for expired per-item timestamps.
+-- Expired items are removed and replaced with spoiled_food.
+
+local SPOILAGE_TICK = 10
+local spoilageTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+	spoilageTimer += dt
+	if spoilageTimer < SPOILAGE_TICK then return end
+	spoilageTimer = 0
+
+	local now = os.time()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local maxSlots = getMaxSlots(player)
+		local totalSpoiled = 0
+
+		for n = 1, maxSlots do
+			local itemId = getSlotItemId(player, n)
+			if itemId == "" then continue end
+			local expiries = getSlotExpiries(player, n)
+			if #expiries == 0 then continue end
+
+			-- Count expired timestamps (sorted ascending, so break on first valid)
+			local expiredCount = 0
+			for _, ts in ipairs(expiries) do
+				if ts <= now then
+					expiredCount += 1
+				else
+					break
+				end
+			end
+
+			if expiredCount > 0 then
+				local qty = getSlotQty(player, n)
+				expiredCount = math.min(expiredCount, qty)  -- safety clamp
+				local remaining = qty - expiredCount
+				totalSpoiled += expiredCount
+
+				if remaining > 0 then
+					local newExpiries = {}
+					for i = expiredCount + 1, #expiries do
+						table.insert(newExpiries, expiries[i])
+					end
+					setSlotExpiries(player, n, newExpiries)
+					setSlot(player, n, itemId, remaining)
+				else
+					setSlot(player, n, itemId, 0)  -- clears slot + expiries
+				end
+			end
+		end
+
+		if totalSpoiled > 0 then
+			addQty(player, "spoiled_food", totalSpoiled)
+			refreshWeight(player)
+			cleanOrphanedHotbarPins(player)
+		end
+	end
 end)
 
 -- ── Player lifecycle ──────────────────────────────────────────────────────
