@@ -183,6 +183,7 @@ local function setSlot(player: Player, n: number, itemId: string, qty: number)
 		player:SetAttribute("InvSlot_" .. n, nil)
 		player:SetAttribute("InvQty_" .. n, nil)
 		player:SetAttribute("InvExpires_" .. n, nil)
+		player:SetAttribute("InvDurability_" .. n, nil)
 	else
 		player:SetAttribute("InvSlot_" .. n, itemId)
 		player:SetAttribute("InvQty_" .. n, math.floor(qty + 0.5))
@@ -212,6 +213,31 @@ local function setSlotExpiries(player: Player, n: number, expiries: { number }?)
 			table.insert(parts, tostring(math.floor(ts)))
 		end
 		player:SetAttribute("InvExpires_" .. n, table.concat(parts, ","))
+	end
+end
+
+-- ── Per-item durability helpers ────────────────────────────────────────────
+
+local function getSlotDurabilities(player: Player, n: number): { number }
+	local str = player:GetAttribute("InvDurability_" .. n)
+	if type(str) ~= "string" or str == "" then return {} end
+	local result = {}
+	for d in string.gmatch(str, "[^,]+") do
+		local num = tonumber(d)
+		if num then table.insert(result, num) end
+	end
+	return result
+end
+
+local function setSlotDurabilities(player: Player, n: number, durabilities: { number }?)
+	if not durabilities or #durabilities == 0 then
+		player:SetAttribute("InvDurability_" .. n, nil)
+	else
+		local parts = {}
+		for _, d in ipairs(durabilities) do
+			table.insert(parts, tostring(math.floor(d)))
+		end
+		player:SetAttribute("InvDurability_" .. n, table.concat(parts, ","))
 	end
 end
 
@@ -259,6 +285,7 @@ local function addQty(player: Player, itemId: string, amount: number): boolean
 	local maxSlots  = getMaxSlots(player)
 	local remaining = amount
 	local perishSec = def.perishSeconds  -- nil if not perishable
+	local durMax    = def.durabilityMax  -- nil if no durability
 
 	-- Fill partial stacks first
 	for n = 1, maxSlots do
@@ -276,6 +303,13 @@ local function addQty(player: Player, itemId: string, amount: number): boolean
 					end
 					table.sort(expiries)
 					setSlotExpiries(player, n, expiries)
+				end
+				if durMax then
+					local durs = getSlotDurabilities(player, n)
+					for _ = 1, canAdd do
+						table.insert(durs, durMax)
+					end
+					setSlotDurabilities(player, n, durs)
 				end
 				remaining -= canAdd
 			end
@@ -295,6 +329,13 @@ local function addQty(player: Player, itemId: string, amount: number): boolean
 					table.insert(expiries, now + perishSec)
 				end
 				setSlotExpiries(player, n, expiries)
+			end
+			if durMax then
+				local durs = {}
+				for _ = 1, take do
+					table.insert(durs, durMax)
+				end
+				setSlotDurabilities(player, n, durs)
 			end
 			remaining -= take
 		end
@@ -324,6 +365,15 @@ local function removeQty(player: Player, itemId: string, amount: number): boolea
 						table.insert(trimmed, expiries[i])
 					end
 					setSlotExpiries(player, n, trimmed)
+				end
+				-- Trim durability values from front (first items consumed first)
+				local durs = getSlotDurabilities(player, n)
+				if #durs > 0 then
+					local trimmedDurs = {}
+					for i = take + 1, #durs do
+						table.insert(trimmedDurs, durs[i])
+					end
+					setSlotDurabilities(player, n, trimmedDurs)
 				end
 			end
 			setSlot(player, n, itemId, newQty)
@@ -683,6 +733,58 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	local newHP = nodeHP - 1
 	targetModel:SetAttribute("_NodeHealth", newHP)
 
+	-- Decrement equipped tool durability
+	local eqSlot = math.floor(tonumber(player:GetAttribute("HotbarEquippedSlot")) or 0)
+	if eqSlot >= 1 and eqSlot <= HOTBAR_SIZE then
+		local toolItemId = tostring(player:GetAttribute(slotAttrName(eqSlot)) or "")
+		local toolDef = toolItemId ~= "" and ItemRegistry.get(toolItemId) or nil
+		if toolDef and toolDef.durabilityMax then
+			-- Find inventory slot holding this tool
+			local toolInvSlot: number? = nil
+			for n = 1, getMaxSlots(player) do
+				if getSlotItemId(player, n) == toolItemId then
+					toolInvSlot = n
+					break
+				end
+			end
+			if toolInvSlot then
+				local durs = getSlotDurabilities(player, toolInvSlot)
+				if #durs > 0 then
+					durs[1] -= 1
+					if durs[1] <= 0 then
+						-- First item in stack broke
+						table.remove(durs, 1)
+						local toolQty = getSlotQty(player, toolInvSlot)
+						if toolQty <= 1 then
+							-- Last one in stack — clear slot and unequip
+							setSlot(player, toolInvSlot, toolItemId, 0)
+							player:SetAttribute(slotAttrName(eqSlot), nil)
+							player:SetAttribute("HotbarEquippedSlot", nil)
+							-- Destroy held tool model
+							local char = player.Character
+							if char then
+								local toolInstance = char:FindFirstChild(toolItemId)
+								if toolInstance then toolInstance:Destroy() end
+							end
+							local bp = player:FindFirstChildOfClass("Backpack")
+							if bp then
+								local toolInBp = bp:FindFirstChild(toolItemId)
+								if toolInBp then toolInBp:Destroy() end
+							end
+						else
+							setSlot(player, toolInvSlot, toolItemId, toolQty - 1)
+							setSlotDurabilities(player, toolInvSlot, durs)
+						end
+						refreshWeight(player)
+						harvestNotifyRemote:FireClient(player, "Your " .. toolDef.displayName .. " broke!")
+					else
+						setSlotDurabilities(player, toolInvSlot, durs)
+					end
+				end
+			end
+		end
+	end
+
 	-- Get display name for floating text
 	local def = ItemRegistry.get(itemId)
 	local displayName = def and def.displayName or itemId
@@ -707,8 +809,17 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	end
 
 	-- Destroy node if HP depleted (AncestryChanged in ScatterSpawnService triggers respawn)
+	-- Delay slightly so client can play final hit feedback (shake, sound, floating text)
 	if nodeDestroyed then
-		targetModel:Destroy()
+		-- Disable further interaction immediately
+		for _, desc in ipairs(targetModel:GetDescendants()) do
+			if desc:IsA("ProximityPrompt") then desc.Enabled = false end
+		end
+		task.delay(1.4, function()
+			if targetModel and targetModel.Parent then
+				targetModel:Destroy()
+			end
+		end)
 	end
 end)
 
@@ -883,6 +994,16 @@ local function createDeathLootBag(player: Player, items: { { itemId: string, qty
 
 	-- Fire beacon to the owner client
 	deathBagBeaconRemote:FireClient(player, bag, lifetime)
+end
+
+-- ── Cross-service loot bag creation (BindableFunction) ──────────────────
+-- Allows other server scripts (TradingService, etc.) to drop loot bags.
+
+local invCreateLootBagFunc = Instance.new("BindableFunction")
+invCreateLootBagFunc.Name = "CreateLootBag"
+invCreateLootBagFunc.Parent = invBindables
+invCreateLootBagFunc.OnInvoke = function(plr: Player, items: { { itemId: string, qty: number } })
+	createLootBag(plr, items)
 end
 
 -- ── Dump all inventory (called by PlayerStateService on death) ───────────
@@ -1126,10 +1247,24 @@ splitStackRemote.OnServerEvent:Connect(function(player, rawSlot, rawSplitQty)
 		end
 	end
 
+	-- Split durability list: first N go to new slot, rest stay
+	local durs = getSlotDurabilities(player, slot)
+	local splitDurs = {}
+	local remainDurs = {}
+	for i, d in ipairs(durs) do
+		if i <= splitQty then
+			table.insert(splitDurs, d)
+		else
+			table.insert(remainDurs, d)
+		end
+	end
+
 	setSlot(player, slot, itemId, qty - splitQty)
 	setSlotExpiries(player, slot, remainExpiries)
+	setSlotDurabilities(player, slot, remainDurs)
 	setSlot(player, freeSlot, itemId, splitQty)
 	setSlotExpiries(player, freeSlot, splitExpiries)
+	setSlotDurabilities(player, freeSlot, splitDurs)
 end)
 
 -- ── SwapSlots (inventory drag-and-drop) ───────────────────────────────────
@@ -1167,24 +1302,43 @@ swapSlotsRemote.OnServerEvent:Connect(function(player, rawSlotA, rawSlotB)
 				end
 				table.sort(expiresB)
 			end
+			-- Merge durability lists: first N from A move to B
+			local dursA = getSlotDurabilities(player, slotA)
+			local dursB = getSlotDurabilities(player, slotB)
+			local keptDursA = {}
+			if #dursA > 0 then
+				for i, d in ipairs(dursA) do
+					if i <= transfer then
+						table.insert(dursB, d)
+					else
+						table.insert(keptDursA, d)
+					end
+				end
+			end
 			setSlot(player, slotB, itemIdB, qtyB + transfer)
 			setSlotExpiries(player, slotB, expiresB)
+			setSlotDurabilities(player, slotB, dursB)
 			local newQtyA = qtyA - transfer
 			setSlot(player, slotA, itemIdA, newQtyA)
 			if newQtyA > 0 then
 				setSlotExpiries(player, slotA, keptA)
+				setSlotDurabilities(player, slotA, keptDursA)
 			end
 		end
 		return
 	end
 
-	-- Different items (or one is empty) → swap expiry data too.
+	-- Different items (or one is empty) → swap expiry and durability data too.
 	local expiresA = getSlotExpiries(player, slotA)
 	local expiresB = getSlotExpiries(player, slotB)
+	local dursA    = getSlotDurabilities(player, slotA)
+	local dursB    = getSlotDurabilities(player, slotB)
 	setSlot(player, slotA, itemIdB, qtyB)
 	setSlotExpiries(player, slotA, expiresB)
+	setSlotDurabilities(player, slotA, dursB)
 	setSlot(player, slotB, itemIdA, qtyA)
 	setSlotExpiries(player, slotB, expiresA)
+	setSlotDurabilities(player, slotB, dursA)
 end)
 
 -- ── DropItem ──────────────────────────────────────────────────────────────
@@ -1433,9 +1587,18 @@ RunService.Heartbeat:Connect(function(dt)
 						table.insert(newExpiries, expiries[i])
 					end
 					setSlotExpiries(player, n, newExpiries)
+					-- Trim durabilities in case item has both perish + durability
+					local durs = getSlotDurabilities(player, n)
+					if #durs > 0 then
+						local newDurs = {}
+						for i = expiredCount + 1, #durs do
+							table.insert(newDurs, durs[i])
+						end
+						setSlotDurabilities(player, n, newDurs)
+					end
 					setSlot(player, n, itemId, remaining)
 				else
-					setSlot(player, n, itemId, 0)  -- clears slot + expiries
+					setSlot(player, n, itemId, 0)  -- clears slot + expiries + durability
 				end
 			end
 		end

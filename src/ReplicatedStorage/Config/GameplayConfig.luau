@@ -59,6 +59,11 @@ return {
 		UICloseRange = 12,         -- studs: auto-close UI if player walks away
 	},
 
+	Trading = {
+		InteractRange = 15,            -- studs: ProximityPrompt range and max trade distance
+		RequestTimeoutSeconds = 15,    -- pending request expires after this
+	},
+
 	Inventory = {
 		-- Base carry weight with no backpack equipped (just pockets), in kg.
 		BasePocketWeight = 5,

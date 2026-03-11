@@ -4,9 +4,16 @@
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService      = game:GetService("SoundService")
 
 local AssetIds     = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+
+-- Tool break sound
+local toolBreakSound = Instance.new("Sound")
+toolBreakSound.SoundId = AssetIds.Sounds.ToolBreak or ""
+toolBreakSound.Volume  = 0.7
+toolBreakSound.Parent  = SoundService
 
 local remotesFolder   = ReplicatedStorage:WaitForChild("Remotes")
 local harvestResult   = remotesFolder:WaitForChild("HarvestResult")
@@ -215,4 +222,7 @@ end)
 
 harvestNotify.OnClientEvent:Connect(function(message: string)
 	showNotify(message)
+	if string.find(message, "broke") then
+		toolBreakSound:Play()
+	end
 end)

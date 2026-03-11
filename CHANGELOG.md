@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.10.0] - 2026-03-11
+
+### Added
+- **Player-to-player trading** — drag an item from your inventory onto another player's character to initiate a trade. Target player sees accept/decline popup with item preview. Both players get a split-view trade window (YOUR OFFER / THEIR OFFER) with mutual confirmation
+- **TradingService** (`TradingService.server.luau`) — server-side trade session management with drag-to-player initiation, pending request timeout (15s), offer updates, mutual confirmation, and atomic trade execution
+- **Trade overflow protection** — if a received item would exceed the partner's weight limit, excess drops as a loot bag at their feet via `CreateLootBag` BindableFunction
+- **Trade range enforcement** — auto-cancels trade if players walk more than 15 studs apart (Heartbeat check)
+- **Trade UI** — trade window positioned right of inventory with scrollable offer grids, confirm/cancel buttons, and partner status text. Click items in YOUR OFFER to remove them. Escape closes trade
+- **`CreateLootBag` BindableFunction** — cross-service function for spawning loot bags from arbitrary item lists
+- **Hand crafting channel** — crafting now takes 5 seconds with a progress bar, looping animation (`rbxassetid://120762235566284`), and sound effect (`rbxassetid://97194221591864`). Inventory closes during crafting so you can see your character. Cancellable by moving or pressing CRAFT again
+- **Craft weight check** — crafting checks net weight change (output minus ingredients) against carry capacity before starting. Shows "Too heavy to craft!" if over limit
+- **Tool durability system** — tools (stone_knife=20, stone_axe=30, stone_pickaxe=25) now have per-item durability that decrements on each harvest hit. When durability reaches 0, the tool breaks with a notification and sound effect
+- **Per-item durability in stacks** — each tool in a stack has independent durability stored as comma-separated `InvDurability_N` attributes (mirrors the expiry pattern). First item in stack is the "active" one that takes damage
+- **Durability persistence** — durability values saved/loaded from DataStore. Existing tools without saved durability gracefully receive max durability on load
+- **Durability bars** — thin green→yellow→red bar on both hotbar slots and inventory grid cells for durable items. Inventory detail strip shows "Durability: X/Y" text
+- **Tool break sound** — `rbxassetid://93653850093139` plays when a tool breaks
+- **Tool break notification** — floating text "Your {tool} broke!" appears above player head
+- New remotes: `TradeInitiate`, `TradeRequest`, `TradeResponse`, `TradeState`, `TradeUpdateOffer`, `TradeConfirm`, `TradeCancel`
+- `GameplayConfig.Trading` — `InteractRange` (15 studs), `RequestTimeoutSeconds` (15s)
+
+### Changed
+- **Harvest node destruction delay** — nodes now persist 1.4s after final hit (up from instant) so the client can play feedback animation before the model disappears. ProximityPrompt disabled immediately to prevent interaction
+- **Split/swap/spoilage** — all inventory operations (SplitStack, SwapSlots, merge, spoilage sweep) now carry durability data alongside expiry data
+- `InvDurability_N` attribute changes trigger DataStore dirty flag for auto-save
+- Hotbar and inventory attribute change listeners now include `InvDurability_` prefix
+
+---
+
 ## [0.9.0] - 2026-03-11
 
 ### Added

@@ -36,6 +36,12 @@ local campfireTakeRemote   = remotesFolder:WaitForChild("CampfireTakeItem")
 local openLootBagRemote    = remotesFolder:WaitForChild("OpenLootBag")
 local lootBagStateRemote   = remotesFolder:WaitForChild("LootBagState")
 local takeLootBagItemRemote = remotesFolder:WaitForChild("TakeLootBagItem")
+local tradeRequestRemote     = remotesFolder:WaitForChild("TradeRequest")
+local tradeResponseRemote    = remotesFolder:WaitForChild("TradeResponse")
+local tradeStateRemote       = remotesFolder:WaitForChild("TradeState")
+local tradeUpdateOfferRemote = remotesFolder:WaitForChild("TradeUpdateOffer")
+local tradeConfirmRemote     = remotesFolder:WaitForChild("TradeConfirm")
+local tradeCancelRemote      = remotesFolder:WaitForChild("TradeCancel")
 local hotbarSlotCount = math.clamp(math.floor(tonumber(Config.Hotbar and Config.Hotbar.Slots) or 9), 1, 9)
 
 -- Expanded survival panel dimensions
@@ -500,6 +506,8 @@ type HotbarSlotUI = {
 	qtyLabel:    TextLabel,
 	spoilBarBg:  Frame,
 	spoilBarFill: Frame,
+	durBarBg:    Frame,
+	durBarFill:  Frame,
 }
 local hotbarSlotUIs: { HotbarSlotUI } = {}
 
@@ -621,6 +629,27 @@ for slot = 1, hotbarSlotCount do
 	spoilBarFill.Parent              = spoilBarBg
 	createRoundedCorner(spoilBarFill, UDim.new(0, 2))
 
+	-- Durability bar (thin bar above spoil bar, hidden by default)
+	local durBarBg = Instance.new("Frame")
+	durBarBg.Name                    = "DurBarBg"
+	durBarBg.Size                    = UDim2.new(1, -6, 0, 3)
+	durBarBg.Position                = UDim2.new(0, 3, 1, -5)
+	durBarBg.BackgroundColor3        = Color3.fromRGB(20, 20, 20)
+	durBarBg.BorderSizePixel         = 0
+	durBarBg.Visible                 = false
+	durBarBg.ZIndex                  = 4
+	durBarBg.Parent                  = slotFrame
+	createRoundedCorner(durBarBg, UDim.new(0, 2))
+
+	local durBarFill = Instance.new("Frame")
+	durBarFill.Name                  = "DurBarFill"
+	durBarFill.Size                  = UDim2.new(1, 0, 1, 0)
+	durBarFill.BackgroundColor3      = Color3.fromRGB(0, 200, 0)
+	durBarFill.BorderSizePixel       = 0
+	durBarFill.ZIndex                = 5
+	durBarFill.Parent                = durBarBg
+	createRoundedCorner(durBarFill, UDim.new(0, 2))
+
 	-- Drag to reorder hotbar slots.
 	slotFrame.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
@@ -637,6 +666,8 @@ for slot = 1, hotbarSlotCount do
 		qtyLabel     = qtyLabel,
 		spoilBarBg   = spoilBarBg,
 		spoilBarFill = spoilBarFill,
+		durBarBg     = durBarBg,
+		durBarFill   = durBarFill,
 	}
 end
 
@@ -786,6 +817,42 @@ local function refreshHotbar()
 			ui.spoilBarBg.Visible = false
 		end
 
+		-- Durability bar: find the first durability value for the active item
+		if itemId ~= "" then
+			local durDef = ItemRegistry.get(itemId)
+			if durDef and durDef.durabilityMax then
+				local maxSlots = math.max(1, math.floor(tonumber(player:GetAttribute("MaxInvSlots")) or 5))
+				local firstDur: number? = nil
+				for n = 1, maxSlots do
+					if tostring(player:GetAttribute("InvSlot_" .. n) or "") == itemId then
+						local durStr = player:GetAttribute("InvDurability_" .. n)
+						if type(durStr) == "string" and durStr ~= "" then
+							local first = string.match(durStr, "^([^,]+)")
+							if first then
+								firstDur = tonumber(first)
+								break
+							end
+						end
+					end
+				end
+				if firstDur then
+					local ratio = math.clamp(firstDur / durDef.durabilityMax, 0, 1)
+					ui.durBarFill.Size = UDim2.new(ratio, 0, 1, 0)
+					-- Green > 50%, Yellow 25-50%, Red < 25%
+					local r = math.floor(255 * math.clamp((1 - ratio) * 2, 0, 1))
+					local g = math.floor(255 * math.clamp(ratio * 2, 0, 1))
+					ui.durBarFill.BackgroundColor3 = Color3.fromRGB(r, g, 0)
+					ui.durBarBg.Visible = true
+				else
+					ui.durBarBg.Visible = false
+				end
+			else
+				ui.durBarBg.Visible = false
+			end
+		else
+			ui.durBarBg.Visible = false
+		end
+
 		-- Selection highlight
 		local isEquipped = slot == equippedSlot
 		ui.stroke.Color       = isEquipped and Color3.fromRGB(115, 230, 140) or Color3.fromRGB(95, 105, 125)
@@ -800,7 +867,7 @@ end
 player:GetAttributeChangedSignal("HotbarEquippedSlot"):Connect(refreshHotbar)
 -- Refresh qty badges when consumable stacks are consumed/gained.
 player.AttributeChanged:Connect(function(attrName)
-	if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" or attrName:sub(1, 11) == "InvExpires_" then
+	if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" or attrName:sub(1, 11) == "InvExpires_" or attrName:sub(1, 15) == "InvDurability_" then
 		refreshHotbar()
 	end
 end)
@@ -2101,11 +2168,519 @@ for _, desc in ipairs(Workspace:GetDescendants()) do
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- Trading UI — request popup + trade window
+-- ---------------------------------------------------------------------------
+
+local tradePanel: Frame? = nil
+local tradeRequestPopup: Frame? = nil
+local tradePartnerName: string = ""
+local tradeState: {
+	partnerName: string,
+	partnerUserId: number,
+	myOffer: { { itemId: string, qty: number } },
+	theirOffer: { { itemId: string, qty: number } },
+	iConfirmed: boolean,
+	theyConfirmed: boolean,
+}? = nil
+
+local TRADE_SLOT_SIZE = 56
+local TRADE_COLUMNS = 3
+local TRADE_PADDING = 6
+
+local function makeTradeSlot(parent: ScrollingFrame, entry: { itemId: string, qty: number }, idx: number, clickable: boolean)
+	local btn = Instance.new("TextButton")
+	btn.Name = "TradeSlot_" .. idx
+	btn.Size = UDim2.fromOffset(TRADE_SLOT_SIZE, TRADE_SLOT_SIZE)
+	btn.LayoutOrder = idx
+	btn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+	btn.BackgroundTransparency = 0.1
+	btn.BorderSizePixel = 0
+	btn.Text = ""
+	btn.AutoButtonColor = clickable
+	btn.Parent = parent
+
+	btn:SetAttribute("_TradeItemId", entry.itemId)
+	btn:SetAttribute("_TradeQty", entry.qty)
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(95, 105, 125)
+	stroke.Transparency = 0.4
+	stroke.Thickness = 1
+	stroke.Parent = btn
+
+	local icon = getItemIcon(entry.itemId)
+	if icon ~= "" then
+		local img = Instance.new("ImageLabel")
+		img.Name = "Icon"
+		img.Size = UDim2.fromOffset(40, 40)
+		img.Position = UDim2.fromOffset(8, 6)
+		img.BackgroundTransparency = 1
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Image = icon
+		img.Parent = btn
+	else
+		btn.Text = getItemAbbrev(entry.itemId)
+		btn.TextColor3 = Color3.fromRGB(200, 200, 210)
+		btn.TextSize = 11
+		btn.Font = Enum.Font.GothamMedium
+	end
+
+	if entry.qty > 1 then
+		local qtyLabel = Instance.new("TextLabel")
+		qtyLabel.Name = "Qty"
+		qtyLabel.Size = UDim2.fromOffset(24, 14)
+		qtyLabel.Position = UDim2.new(1, -26, 1, -16)
+		qtyLabel.BackgroundTransparency = 1
+		qtyLabel.Text = tostring(entry.qty)
+		qtyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		qtyLabel.TextSize = 11
+		qtyLabel.Font = Enum.Font.GothamBold
+		qtyLabel.TextXAlignment = Enum.TextXAlignment.Right
+		qtyLabel.TextStrokeTransparency = 0.5
+		qtyLabel.Parent = btn
+	end
+
+	-- Item name
+	local def = ItemRegistry.get(entry.itemId)
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, 0, 0, 10)
+	nameLabel.Position = UDim2.new(0, 0, 1, -12)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = def and def.displayName or entry.itemId
+	nameLabel.TextColor3 = Color3.fromRGB(160, 165, 180)
+	nameLabel.TextSize = 8
+	nameLabel.Font = Enum.Font.GothamMedium
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLabel.Parent = btn
+
+	return btn
+end
+
+local function refreshTradeUI()
+	if not tradePanel or not tradeState then return end
+
+	-- Refresh MY OFFER column
+	local myScroll = tradePanel:FindFirstChild("MyOfferScroll") :: ScrollingFrame
+	if myScroll then
+		for _, child in ipairs(myScroll:GetChildren()) do
+			if child:IsA("TextButton") then child:Destroy() end
+		end
+		for idx, entry in ipairs(tradeState.myOffer) do
+			local btn = makeTradeSlot(myScroll, entry, idx, true)
+			btn.MouseButton1Click:Connect(function()
+				tradeUpdateOfferRemote:FireServer(entry.itemId, entry.qty, "remove")
+			end)
+		end
+		local rows = math.ceil(#tradeState.myOffer / TRADE_COLUMNS)
+		myScroll.CanvasSize = UDim2.fromOffset(0, rows * (TRADE_SLOT_SIZE + TRADE_PADDING) + TRADE_PADDING)
+	end
+
+	-- Refresh THEIR OFFER column
+	local theirScroll = tradePanel:FindFirstChild("TheirOfferScroll") :: ScrollingFrame
+	if theirScroll then
+		for _, child in ipairs(theirScroll:GetChildren()) do
+			if child:IsA("TextButton") then child:Destroy() end
+		end
+		for idx, entry in ipairs(tradeState.theirOffer) do
+			makeTradeSlot(theirScroll, entry, idx, false)
+		end
+		local rows = math.ceil(#tradeState.theirOffer / TRADE_COLUMNS)
+		theirScroll.CanvasSize = UDim2.fromOffset(0, rows * (TRADE_SLOT_SIZE + TRADE_PADDING) + TRADE_PADDING)
+	end
+
+	-- Update confirm button and status
+	local confirmBtn = tradePanel:FindFirstChild("ConfirmBtn") :: TextButton
+	local statusLabel = tradePanel:FindFirstChild("StatusLabel") :: TextLabel
+
+	if confirmBtn then
+		if tradeState.iConfirmed then
+			confirmBtn.BackgroundColor3 = Color3.fromRGB(30, 80, 30)
+			confirmBtn.Text = "CONFIRMED"
+		else
+			confirmBtn.BackgroundColor3 = Color3.fromRGB(40, 65, 40)
+			confirmBtn.Text = "CONFIRM"
+		end
+	end
+
+	if statusLabel then
+		if tradeState.theyConfirmed then
+			statusLabel.Text = tradeState.partnerName .. " confirmed"
+			statusLabel.TextColor3 = Color3.fromRGB(120, 200, 120)
+		elseif tradeState.iConfirmed then
+			statusLabel.Text = "Waiting for " .. tradeState.partnerName .. "..."
+			statusLabel.TextColor3 = Color3.fromRGB(180, 180, 140)
+		else
+			statusLabel.Text = ""
+		end
+	end
+
+	-- Update partner name in title
+	local theirTitle = tradePanel:FindFirstChild("TheirTitle") :: TextLabel
+	if theirTitle then
+		theirTitle.Text = tradeState.partnerName:upper() .. "'S OFFER"
+	end
+end
+
+local function buildTradePanel()
+	if tradePanel then return end
+
+	local COLUMN_WIDTH = 210
+	local PANEL_W = COLUMN_WIDTH * 2 + 24  -- 2 columns + padding
+	local PANEL_H = 360
+
+	local panel = Instance.new("Frame")
+	panel.Name = "TradePanel"
+	panel.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
+	-- Sit to the right of the centered inventory panel (540px wide, centered)
+	-- Inventory right edge is at 0.5 + 270, so trade panel starts 8px further right
+	panel.Position = UDim2.new(0.5, 270 + 8, 0.5, -PANEL_H / 2)
+	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	panel.BackgroundTransparency = 0.15
+	panel.BorderSizePixel = 0
+	panel.Visible = false
+	panel.Parent = hud
+
+	local panelCorner = Instance.new("UICorner")
+	panelCorner.CornerRadius = UDim.new(0, 12)
+	panelCorner.Parent = panel
+
+	local panelStroke = Instance.new("UIStroke")
+	panelStroke.Color = Color3.fromRGB(120, 180, 210)
+	panelStroke.Transparency = 0.5
+	panelStroke.Thickness = 1
+	panelStroke.Parent = panel
+
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, 0, 0, 24)
+	title.Position = UDim2.fromOffset(0, 6)
+	title.BackgroundTransparency = 1
+	title.Text = "TRADE"
+	title.TextColor3 = Color3.fromRGB(120, 180, 210)
+	title.TextSize = 13
+	title.Font = Enum.Font.GothamBold
+	title.Parent = panel
+
+	-- Close button
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "Close"
+	closeBtn.Size = UDim2.fromOffset(20, 20)
+	closeBtn.Position = UDim2.new(1, -24, 0, 6)
+	closeBtn.BackgroundColor3 = Color3.fromRGB(120, 35, 35)
+	closeBtn.BackgroundTransparency = 0.4
+	closeBtn.Text = "X"
+	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	closeBtn.TextSize = 11
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Parent = panel
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0, 4)
+	closeBtnCorner.Parent = closeBtn
+
+	-- ── Left column: YOUR OFFER ──
+	local myTitle = Instance.new("TextLabel")
+	myTitle.Name = "MyTitle"
+	myTitle.Size = UDim2.fromOffset(COLUMN_WIDTH, 18)
+	myTitle.Position = UDim2.fromOffset(8, 32)
+	myTitle.BackgroundTransparency = 1
+	myTitle.Text = "YOUR OFFER"
+	myTitle.TextColor3 = Color3.fromRGB(180, 200, 140)
+	myTitle.TextSize = 11
+	myTitle.Font = Enum.Font.GothamBold
+	myTitle.TextXAlignment = Enum.TextXAlignment.Center
+	myTitle.Parent = panel
+
+	local myScroll = Instance.new("ScrollingFrame")
+	myScroll.Name = "MyOfferScroll"
+	myScroll.Size = UDim2.fromOffset(COLUMN_WIDTH, PANEL_H - 110)
+	myScroll.Position = UDim2.fromOffset(8, 52)
+	myScroll.BackgroundColor3 = Color3.fromRGB(20, 22, 32)
+	myScroll.BackgroundTransparency = 0.5
+	myScroll.BorderSizePixel = 0
+	myScroll.ScrollBarThickness = 4
+	myScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 140)
+	myScroll.CanvasSize = UDim2.fromOffset(0, 0)
+	myScroll.Parent = panel
+	local myScrollCorner = Instance.new("UICorner")
+	myScrollCorner.CornerRadius = UDim.new(0, 6)
+	myScrollCorner.Parent = myScroll
+
+	local myGrid = Instance.new("UIGridLayout")
+	myGrid.CellSize = UDim2.fromOffset(TRADE_SLOT_SIZE, TRADE_SLOT_SIZE)
+	myGrid.CellPadding = UDim2.fromOffset(TRADE_PADDING, TRADE_PADDING)
+	myGrid.SortOrder = Enum.SortOrder.LayoutOrder
+	myGrid.Parent = myScroll
+
+	-- ── Right column: THEIR OFFER ──
+	local theirTitle = Instance.new("TextLabel")
+	theirTitle.Name = "TheirTitle"
+	theirTitle.Size = UDim2.fromOffset(COLUMN_WIDTH, 18)
+	theirTitle.Position = UDim2.fromOffset(8 + COLUMN_WIDTH + 8, 32)
+	theirTitle.BackgroundTransparency = 1
+	theirTitle.Text = "THEIR OFFER"
+	theirTitle.TextColor3 = Color3.fromRGB(210, 160, 120)
+	theirTitle.TextSize = 11
+	theirTitle.Font = Enum.Font.GothamBold
+	theirTitle.TextXAlignment = Enum.TextXAlignment.Center
+	theirTitle.Parent = panel
+
+	local theirScroll = Instance.new("ScrollingFrame")
+	theirScroll.Name = "TheirOfferScroll"
+	theirScroll.Size = UDim2.fromOffset(COLUMN_WIDTH, PANEL_H - 110)
+	theirScroll.Position = UDim2.fromOffset(8 + COLUMN_WIDTH + 8, 52)
+	theirScroll.BackgroundColor3 = Color3.fromRGB(20, 22, 32)
+	theirScroll.BackgroundTransparency = 0.5
+	theirScroll.BorderSizePixel = 0
+	theirScroll.ScrollBarThickness = 4
+	theirScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 140)
+	theirScroll.CanvasSize = UDim2.fromOffset(0, 0)
+	theirScroll.Parent = panel
+	local theirScrollCorner = Instance.new("UICorner")
+	theirScrollCorner.CornerRadius = UDim.new(0, 6)
+	theirScrollCorner.Parent = theirScroll
+
+	local theirGrid = Instance.new("UIGridLayout")
+	theirGrid.CellSize = UDim2.fromOffset(TRADE_SLOT_SIZE, TRADE_SLOT_SIZE)
+	theirGrid.CellPadding = UDim2.fromOffset(TRADE_PADDING, TRADE_PADDING)
+	theirGrid.SortOrder = Enum.SortOrder.LayoutOrder
+	theirGrid.Parent = theirScroll
+
+	-- ── Bottom bar: Confirm + Cancel + Status ──
+	local confirmBtn = Instance.new("TextButton")
+	confirmBtn.Name = "ConfirmBtn"
+	confirmBtn.Size = UDim2.fromOffset(120, 28)
+	confirmBtn.Position = UDim2.new(0, 8, 1, -38)
+	confirmBtn.BackgroundColor3 = Color3.fromRGB(40, 65, 40)
+	confirmBtn.BackgroundTransparency = 0.2
+	confirmBtn.Text = "CONFIRM"
+	confirmBtn.TextColor3 = Color3.fromRGB(180, 220, 180)
+	confirmBtn.TextSize = 11
+	confirmBtn.Font = Enum.Font.GothamBold
+	confirmBtn.BorderSizePixel = 0
+	confirmBtn.Parent = panel
+	local confirmCorner = Instance.new("UICorner")
+	confirmCorner.CornerRadius = UDim.new(0, 6)
+	confirmCorner.Parent = confirmBtn
+
+	local cancelBtn = Instance.new("TextButton")
+	cancelBtn.Name = "CancelBtn"
+	cancelBtn.Size = UDim2.fromOffset(80, 28)
+	cancelBtn.Position = UDim2.new(0, 136, 1, -38)
+	cancelBtn.BackgroundColor3 = Color3.fromRGB(120, 35, 35)
+	cancelBtn.BackgroundTransparency = 0.3
+	cancelBtn.Text = "CANCEL"
+	cancelBtn.TextColor3 = Color3.fromRGB(220, 160, 160)
+	cancelBtn.TextSize = 11
+	cancelBtn.Font = Enum.Font.GothamBold
+	cancelBtn.BorderSizePixel = 0
+	cancelBtn.Parent = panel
+	local cancelCorner = Instance.new("UICorner")
+	cancelCorner.CornerRadius = UDim.new(0, 6)
+	cancelCorner.Parent = cancelBtn
+
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "StatusLabel"
+	statusLabel.Size = UDim2.new(0, PANEL_W - 230, 0, 28)
+	statusLabel.Position = UDim2.new(0, 224, 1, -38)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Text = ""
+	statusLabel.TextColor3 = Color3.fromRGB(180, 180, 140)
+	statusLabel.TextSize = 10
+	statusLabel.Font = Enum.Font.GothamMedium
+	statusLabel.TextXAlignment = Enum.TextXAlignment.Right
+	statusLabel.Parent = panel
+
+	-- ObjectValue for partner reference (used by InventoryController drag system)
+	local partnerRef = Instance.new("StringValue")
+	partnerRef.Name = "TradePartner"
+	partnerRef.Parent = panel
+
+	-- Handlers
+	closeBtn.MouseButton1Click:Connect(function()
+		tradeCancelRemote:FireServer()
+	end)
+	cancelBtn.MouseButton1Click:Connect(function()
+		tradeCancelRemote:FireServer()
+	end)
+	confirmBtn.MouseButton1Click:Connect(function()
+		tradeConfirmRemote:FireServer()
+	end)
+
+	tradePanel = panel
+end
+
+local function openTradePanel()
+	buildTradePanel()
+	tradePanel.Visible = true
+	refreshTradeUI()
+end
+
+function closeTradePanel()
+	if tradePanel then
+		tradePanel.Visible = false
+	end
+	tradeState = nil
+end
+
+-- ── Trade request popup (incoming) ──────────────────────────────────────
+
+local function showTradeRequestPopup(fromName: string, fromUserId: number, offeredItemId: string?, offeredQty: number?)
+	-- Dismiss any existing popup
+	if tradeRequestPopup and tradeRequestPopup.Parent then
+		tradeRequestPopup:Destroy()
+	end
+
+	-- Build offer text for the message
+	local offerText = ""
+	if offeredItemId and offeredQty and offeredQty > 0 then
+		local def = ItemRegistry.get(offeredItemId)
+		local name = def and def.displayName or offeredItemId
+		offerText = " (offering " .. offeredQty .. "x " .. name .. ")"
+	end
+
+	local popup = Instance.new("Frame")
+	popup.Name = "TradeRequestPopup"
+	popup.Size = UDim2.fromOffset(320, 80)
+	popup.Position = UDim2.new(0.5, -160, 0.3, 0)
+	popup.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	popup.BackgroundTransparency = 0.1
+	popup.BorderSizePixel = 0
+	popup.Parent = hud
+
+	local popupCorner = Instance.new("UICorner")
+	popupCorner.CornerRadius = UDim.new(0, 10)
+	popupCorner.Parent = popup
+
+	local popupStroke = Instance.new("UIStroke")
+	popupStroke.Color = Color3.fromRGB(120, 180, 210)
+	popupStroke.Transparency = 0.4
+	popupStroke.Thickness = 1
+	popupStroke.Parent = popup
+
+	local msgLabel = Instance.new("TextLabel")
+	msgLabel.Size = UDim2.new(1, -16, 0, 30)
+	msgLabel.Position = UDim2.fromOffset(8, 8)
+	msgLabel.BackgroundTransparency = 1
+	msgLabel.Text = fromName .. " wants to trade" .. offerText
+	msgLabel.TextColor3 = Color3.fromRGB(220, 220, 230)
+	msgLabel.TextSize = 12
+	msgLabel.Font = Enum.Font.GothamMedium
+	msgLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	msgLabel.Parent = popup
+
+	local acceptBtn = Instance.new("TextButton")
+	acceptBtn.Size = UDim2.fromOffset(110, 28)
+	acceptBtn.Position = UDim2.fromOffset(40, 44)
+	acceptBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+	acceptBtn.BackgroundTransparency = 0.2
+	acceptBtn.Text = "ACCEPT"
+	acceptBtn.TextColor3 = Color3.fromRGB(180, 220, 180)
+	acceptBtn.TextSize = 11
+	acceptBtn.Font = Enum.Font.GothamBold
+	acceptBtn.BorderSizePixel = 0
+	acceptBtn.Parent = popup
+	local acceptCorner = Instance.new("UICorner")
+	acceptCorner.CornerRadius = UDim.new(0, 6)
+	acceptCorner.Parent = acceptBtn
+
+	local declineBtn = Instance.new("TextButton")
+	declineBtn.Size = UDim2.fromOffset(110, 28)
+	declineBtn.Position = UDim2.fromOffset(170, 44)
+	declineBtn.BackgroundColor3 = Color3.fromRGB(120, 35, 35)
+	declineBtn.BackgroundTransparency = 0.3
+	declineBtn.Text = "DECLINE"
+	declineBtn.TextColor3 = Color3.fromRGB(220, 160, 160)
+	declineBtn.TextSize = 11
+	declineBtn.Font = Enum.Font.GothamBold
+	declineBtn.BorderSizePixel = 0
+	declineBtn.Parent = popup
+	local declineCorner = Instance.new("UICorner")
+	declineCorner.CornerRadius = UDim.new(0, 6)
+	declineCorner.Parent = declineBtn
+
+	tradeRequestPopup = popup
+
+	acceptBtn.MouseButton1Click:Connect(function()
+		tradeResponseRemote:FireServer(true)
+		if popup.Parent then popup:Destroy() end
+	end)
+
+	declineBtn.MouseButton1Click:Connect(function()
+		tradeResponseRemote:FireServer(false)
+		if popup.Parent then popup:Destroy() end
+	end)
+
+	-- Auto-dismiss after timeout
+	local timeout = (Config.Trading and Config.Trading.RequestTimeoutSeconds) or 15
+	task.delay(timeout, function()
+		if popup and popup.Parent then
+			popup:Destroy()
+		end
+	end)
+end
+
+-- ── Trade remote listeners ──────────────────────────────────────────────
+
+tradeRequestRemote.OnClientEvent:Connect(function(fromName, fromUserId, offeredItemId, offeredQty)
+	if type(fromName) ~= "string" then return end
+	showTradeRequestPopup(fromName, fromUserId, offeredItemId, offeredQty)
+end)
+
+tradeStateRemote.OnClientEvent:Connect(function(data)
+	if data == nil then
+		closeTradePanel()
+		return
+	end
+	tradeState = data
+	tradePartnerName = data.partnerName or ""
+	openTradePanel()
+end)
+
+-- ── Trade range check ───────────────────────────────────────────────────
+
+local tradeRangeCheckTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+	if not tradePanel or not tradePanel.Visible or not tradeState then return end
+
+	tradeRangeCheckTimer += dt
+	if tradeRangeCheckTimer < 0.5 then return end
+	tradeRangeCheckTimer = 0
+
+	-- Find partner character and check distance
+	local partnerName = tradeState.partnerName
+	local partner = Players:FindFirstChild(partnerName)
+	if not partner then
+		closeTradePanel()
+		return
+	end
+
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local partnerChar = (partner :: Player).Character
+	local partnerRoot = partnerChar and partnerChar:FindFirstChild("HumanoidRootPart")
+	if not root or not partnerRoot then return end
+
+	local tradeRange = (Config.Trading and Config.Trading.InteractRange) or 15
+	if (root.Position - partnerRoot.Position).Magnitude > tradeRange + 2 then
+		closeTradePanel()
+	end
+end)
+
 -- Close panels on Escape
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.KeyCode == Enum.KeyCode.Escape then
-		if lootBagPanel and lootBagPanel.Visible then
+		if tradePanel and tradePanel.Visible then
+			tradeCancelRemote:FireServer()
+		elseif lootBagPanel and lootBagPanel.Visible then
 			closeLootBagPanel()
 		elseif cookingPanel and cookingPanel.Visible then
 			closeCookingPanel()

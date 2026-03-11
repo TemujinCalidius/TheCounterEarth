@@ -29,6 +29,14 @@ chewingSound.Looped = true
 chewingSound.Volume = 0.5
 chewingSound.Parent = SoundService
 
+-- Crafting sound for hand-craft channeling
+local craftingSound = Instance.new("Sound")
+craftingSound.Name = "InvCraftingSound"
+craftingSound.SoundId = AssetIds.Sounds.Crafting
+craftingSound.Looped = true
+craftingSound.Volume = 0.6
+craftingSound.Parent = SoundService
+
 local remotes               = ReplicatedStorage:WaitForChild("Remotes")
 local useItemRemote         = remotes:WaitForChild("UseItem")            :: RemoteEvent
 local craftItemRemote       = remotes:WaitForChild("CraftItem")          :: RemoteEvent
@@ -40,6 +48,8 @@ local pinToSpecificSlotRemote = remotes:WaitForChild("PinToSpecificSlot") :: Rem
 local campfireAddRemote     = remotes:WaitForChild("CampfireAddItem")    :: RemoteEvent
 local campfireTakeRemote    = remotes:WaitForChild("CampfireTakeItem")   :: RemoteEvent
 local takeLootBagItemRemote = remotes:WaitForChild("TakeLootBagItem")    :: RemoteEvent
+local tradeUpdateOfferRemote = remotes:WaitForChild("TradeUpdateOffer")  :: RemoteEvent
+local tradeInitiateRemote    = remotes:WaitForChild("TradeInitiate")     :: RemoteEvent
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -158,6 +168,38 @@ local panelStroke = Instance.new("UIStroke")
 panelStroke.Color     = Color3.fromRGB(55, 65, 95)
 panelStroke.Thickness = 1
 panelStroke.Parent    = panel
+
+-- Craft progress bar (shown during hand-craft channeling)
+local craftBarBg = Instance.new("Frame")
+craftBarBg.Name              = "CraftBarBg"
+craftBarBg.Size              = UDim2.new(1, -24, 0, 14)
+craftBarBg.Position          = UDim2.new(0, 12, 1, -22)
+craftBarBg.BackgroundColor3  = Color3.fromRGB(28, 32, 42)
+craftBarBg.BorderSizePixel   = 0
+craftBarBg.Visible           = false
+craftBarBg.ZIndex            = 10
+craftBarBg.Parent            = panel
+addCorner(craftBarBg, 6)
+
+local craftBarFill = Instance.new("Frame")
+craftBarFill.Name              = "CraftBarFill"
+craftBarFill.Size              = UDim2.fromScale(0, 1)
+craftBarFill.BackgroundColor3  = ACCENT
+craftBarFill.BorderSizePixel   = 0
+craftBarFill.ZIndex            = 11
+craftBarFill.Parent            = craftBarBg
+addCorner(craftBarFill, 6)
+
+local craftBarLabel = Instance.new("TextLabel")
+craftBarLabel.Name              = "CraftBarLabel"
+craftBarLabel.Size              = UDim2.fromScale(1, 1)
+craftBarLabel.BackgroundTransparency = 1
+craftBarLabel.Text              = "Crafting..."
+craftBarLabel.TextColor3        = TEXT
+craftBarLabel.TextSize          = 9
+craftBarLabel.Font              = Enum.Font.GothamBold
+craftBarLabel.ZIndex            = 12
+craftBarLabel.Parent            = craftBarBg
 
 -- Header (also acts as drag handle for moving the panel)
 local header = Instance.new("Frame")
@@ -577,6 +619,136 @@ table.sort(allRecipes, function(a, b)
 	return a.displayName < b.displayName
 end)
 
+-- ── Craft channel state ──────────────────────────────────────────────────
+
+local CRAFT_DURATION = 5 -- seconds
+local isCrafting   = false
+local craftRecipeId = ""
+local craftAnimTrack: AnimationTrack? = nil
+local setOpen: (boolean) -> ()  -- forward declaration
+
+local function stopCraftAnimation()
+	if craftAnimTrack then
+		craftAnimTrack:Stop()
+		craftAnimTrack = nil
+	end
+end
+
+local function playCraftAnimation()
+	stopCraftAnimation()
+	local animId = AssetIds.Animations.Crafting
+	if animId == "" then return end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	local animator = hum:FindFirstChildOfClass("Animator")
+	if not animator then return end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = animId
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(anim)
+	end)
+	if ok and track then
+		craftAnimTrack = track
+		track.Priority = Enum.AnimationPriority.Action
+		track.Looped = true
+		track:Play()
+	end
+end
+
+local function cancelCraft()
+	if not isCrafting then return end
+	isCrafting = false
+	craftRecipeId = ""
+	craftBarBg.Visible = false
+	craftBarFill.Size = UDim2.fromScale(0, 1)
+	craftBarLabel.TextColor3 = TEXT
+	craftingSound:Stop()
+	stopCraftAnimation()
+	-- Reparent bar back to inventory panel
+	craftBarBg.Parent = panel
+	craftBarBg.Position = UDim2.new(0, 12, 1, -22)
+	craftBarBg.Size = UDim2.new(1, -24, 0, 14)
+end
+
+local function startCraft(recipeId: string)
+	if isCrafting then return end
+
+	-- Find the recipe
+	local recipe = nil
+	for _, r in ipairs(allRecipes) do
+		if r.id == recipeId then recipe = r; break end
+	end
+	if not recipe or not recipe.ingredients then return end
+
+	-- Check weight: net change = output weight - ingredient weight
+	local ingredientWeight = 0
+	for _, ing in ipairs(recipe.ingredients) do
+		local def = ItemRegistry.get(ing.itemId)
+		if def then ingredientWeight += def.weight * ing.qty end
+	end
+	local outputDef = ItemRegistry.get(recipe.output.itemId)
+	local outputWeight = outputDef and (outputDef.weight * recipe.output.qty) or 0
+	local netWeight = outputWeight - ingredientWeight
+
+	if netWeight > 0 then
+		local currentWeight = tonumber(player:GetAttribute("CarryWeight")) or 0
+		local maxWeight = tonumber(player:GetAttribute("MaxCarryWeight")) or 5
+		if currentWeight + netWeight > maxWeight + 0.001 then
+			-- Too heavy — flash a warning on the craft bar
+			craftBarBg.Visible = true
+			craftBarFill.Size = UDim2.fromScale(0, 1)
+			craftBarLabel.Text = "Too heavy to craft!"
+			craftBarLabel.TextColor3 = BAD
+			task.delay(2, function()
+				if not isCrafting then
+					craftBarBg.Visible = false
+					craftBarLabel.TextColor3 = TEXT
+				end
+			end)
+			return
+		end
+	end
+
+	isCrafting = true
+	craftRecipeId = recipeId
+	craftBarLabel.TextColor3 = TEXT
+
+	-- Close inventory directly (bypass setOpen to avoid cancelCraft)
+	isOpen = false
+	panel.Visible = false
+
+	-- Show progress bar in HUD (reparent to GameplayHud so it's visible with inventory closed)
+	local hudGui = player.PlayerGui:FindFirstChild("GameplayHud")
+	if hudGui then
+		craftBarBg.Parent = hudGui
+		craftBarBg.Position = UDim2.new(0.5, -150, 0.85, 0)
+		craftBarBg.Size = UDim2.fromOffset(300, 16)
+	end
+	craftBarBg.Visible = true
+	craftBarFill.Size = UDim2.fromScale(0, 1)
+	craftBarLabel.Text = "Crafting..."
+	craftingSound:Play()
+	playCraftAnimation()
+
+	task.spawn(function()
+		local elapsed = 0
+		local capturedId = recipeId
+		while isCrafting and craftRecipeId == capturedId and elapsed < CRAFT_DURATION do
+			local dt = task.wait()
+			elapsed += dt
+			local t = math.clamp(elapsed / CRAFT_DURATION, 0, 1)
+			craftBarFill.Size = UDim2.fromScale(t, 1)
+		end
+		if isCrafting and craftRecipeId == capturedId then
+			-- Channel complete — fire craft
+			craftItemRemote:FireServer(capturedId)
+			cancelCraft()
+		end
+	end)
+end
+
 -- ── Pre-build recipe rows ─────────────────────────────────────────────────
 
 type RecipeRow = {
@@ -644,7 +816,11 @@ for i, recipe in ipairs(allRecipes) do
 
 		local capturedId = recipe.id
 		craftBtn.Activated:Connect(function()
-			craftItemRemote:FireServer(capturedId)
+			if isCrafting then
+				cancelCraft()
+			else
+				startCraft(capturedId)
+			end
 		end)
 	end
 
@@ -1058,6 +1234,54 @@ UserInputService.InputEnded:Connect(function(input)
 			end
 		end
 
+		-- Check if dropped on trade panel "YOUR OFFER" area.
+		if not pinned then
+			local tradeP = hud and hud:FindFirstChild("TradePanel")
+			if tradeP and tradeP.Visible then
+				local myOfferScroll = tradeP:FindFirstChild("MyOfferScroll")
+				if myOfferScroll then
+					local ap = myOfferScroll.AbsolutePosition
+					local as = myOfferScroll.AbsoluteSize
+					if pos.X >= ap.X and pos.X <= ap.X + as.X
+						and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+					then
+						local itemId = getSlotItemId(fromSlot)
+						local qty    = getSlotQty(fromSlot)
+						if itemId ~= "" and qty > 0 then
+							tradeUpdateOfferRemote:FireServer(itemId, qty, "add")
+							pinned = true
+						end
+					end
+				end
+			end
+		end
+
+		-- Check if dropped on another player's character → initiate trade.
+		if not pinned then
+			local camera = workspace.CurrentCamera
+			if camera then
+				local ray = camera:ViewportPointToRay(pos.X, pos.Y)
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { player.Character }
+				local result = workspace:Raycast(ray.Origin, ray.Direction * 50, params)
+				if result and result.Instance then
+					local model = result.Instance:FindFirstAncestorWhichIsA("Model")
+					if model then
+						local targetPlayer = Players:GetPlayerFromCharacter(model)
+						if targetPlayer and targetPlayer ~= player then
+							local itemId = getSlotItemId(fromSlot)
+							local qty    = getSlotQty(fromSlot)
+							if itemId ~= "" and qty > 0 then
+								tradeInitiateRemote:FireServer(targetPlayer.UserId, itemId, qty)
+								pinned = true
+							end
+						end
+					end
+				end
+			end
+		end
+
 		if not pinned then
 			-- Dragged outside everything → drop entire stack to world.
 			local itemId = getSlotItemId(fromSlot)
@@ -1128,7 +1352,19 @@ local function selectSlot(n: number)
 	detailName.Text         = def.displayName .. "  x" .. qty
 	detailName.TextColor3   = TEXT
 	detailDesc.Text         = def.description
-	detailSlotLabel.Text    = "Slot " .. n .. " of " .. getMaxSlots()
+
+	-- Build slot label with optional durability info
+	local slotText = "Slot " .. n .. " of " .. getMaxSlots()
+	if def.durabilityMax then
+		local durStr = player:GetAttribute("InvDurability_" .. n)
+		if type(durStr) == "string" and durStr ~= "" then
+			local firstDur = tonumber(string.match(durStr, "^([^,]+)"))
+			if firstDur then
+				slotText = slotText .. "   |   Durability: " .. tostring(math.floor(firstDur)) .. "/" .. tostring(def.durabilityMax)
+			end
+		end
+	end
+	detailSlotLabel.Text    = slotText
 
 	local isConsumable      = def.onConsume ~= nil
 	local isPlaceable       = def.category == "placeable"
@@ -1299,6 +1535,38 @@ local function refreshItemList()
 					end
 				end
 			end
+
+			-- Durability bar (thin bar at bottom for durable items)
+			if def and def.durabilityMax then
+				local durStr = player:GetAttribute("InvDurability_" .. n)
+				if type(durStr) == "string" and durStr ~= "" then
+					local firstDur = tonumber(string.match(durStr, "^([^,]+)"))
+					if firstDur then
+						local ratio = math.clamp(firstDur / def.durabilityMax, 0, 1)
+						local r = math.floor(255 * math.clamp((1 - ratio) * 2, 0, 1))
+						local g = math.floor(255 * math.clamp(ratio * 2, 0, 1))
+
+						local durBg = Instance.new("Frame")
+						durBg.Name                  = "DurBarBg"
+						durBg.Size                  = UDim2.new(1, -6, 0, 3)
+						durBg.Position              = UDim2.new(0, 3, 1, -5)
+						durBg.BackgroundColor3      = Color3.fromRGB(20, 20, 20)
+						durBg.BorderSizePixel       = 0
+						durBg.ZIndex                = slot.ZIndex + 2
+						durBg.Parent                = slot
+						addCorner(durBg, 2)
+
+						local durFill = Instance.new("Frame")
+						durFill.Name                = "DurBarFill"
+						durFill.Size                = UDim2.new(ratio, 0, 1, 0)
+						durFill.BackgroundColor3    = Color3.fromRGB(r, g, 0)
+						durFill.BorderSizePixel     = 0
+						durFill.ZIndex              = slot.ZIndex + 3
+						durFill.Parent              = durBg
+						addCorner(durFill, 2)
+					end
+				end
+			end
 		else
 			-- Slot number label for empty slots
 			makeLabel(slot, {
@@ -1454,11 +1722,13 @@ charTabBtn.Activated:Connect(function() setTab("char") end)
 
 -- ── Open / close ──────────────────────────────────────────────────────────
 
-local function setOpen(open: boolean)
+setOpen = function(open: boolean)
 	isOpen        = open
 	panel.Visible = open
 	if open then
 		refreshAll()
+	else
+		cancelCraft()
 	end
 end
 

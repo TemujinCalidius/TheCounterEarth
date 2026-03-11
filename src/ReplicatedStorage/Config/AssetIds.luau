@@ -27,11 +27,14 @@ return {
 		HarvestKnife = "rbxassetid://123827838080623",
 		HarvestPickaxe = "",  -- placeholder for mining
 		HarvestAxe = "",      -- placeholder for chopping
+		Crafting = "rbxassetid://120762235566284",
 	},
 	Sounds = {
 		Breathing = "rbxassetid://109256307915148",
 		Heartbeat = "rbxassetid://90073835550134",
 		Chewing      = "rbxassetid://109290721572189",
 		HarvestReed  = "rbxassetid://112146767048601",
+		Crafting     = "rbxassetid://97194221591864",
+		ToolBreak    = "rbxassetid://93653850093139",
 	},
 }

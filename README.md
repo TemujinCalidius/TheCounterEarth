@@ -12,16 +12,22 @@ The Counter Earth ships as a ready-to-run Roblox experience with core survival m
 
 - **Energy & Sprint** — stamina system with sprint drain, jump cost, and standing-still regeneration
 - **Survival Stats** — hunger, thirst, and fatigue that drain over time with configurable penalties when depleted
-- **Health System** — persistent health (no auto-regen), bleeding and poison status effects
-- **Slot-Based Inventory** — weight-limited grid inventory with stacking, splitting, and crafting
-- **Hotbar** — 9-slot quick-access bar (keys 1-9) with drag-to-reorder
-- **Drag-and-Drop** — drag items between inventory slots, from inventory to hotbar, or drop to the world
+- **Health System** — persistent health (no auto-regen), bleeding and poison status effects with particle FX
+- **Slot-Based Inventory** — weight-limited grid inventory with stacking, splitting, drag-and-drop, and loot bags
+- **Hotbar** — 9-slot quick-access bar (keys 1-9) with drag-to-reorder and durability/spoilage bars
+- **Drag-and-Drop** — drag items between inventory slots, to hotbar, to trade panel, or drop to the world
+- **Crafting** — hand-crafting with 5-second channeled animation, campfire station cooking with recipe book
+- **Tool Durability** — tools wear down with each use and break when depleted, creating ongoing crafting demand
+- **Hit-to-Harvest** — ARK-style resource gathering with per-hit yield, tool requirements, and node HP
+- **Player Trading** — drag-to-player trade initiation, split-view offer window, mutual confirmation, weight overflow protection
 - **Placeable Items** — ghost preview placement mode with range validation, campfire sitting with health/energy regen
+- **Campfire Cooking** — station-based cooking with input/output slots, progress bar, and shared access
+- **Bedroll & Respawn** — placeable bedroll sets respawn point, relog position persistence
+- **Food Spoilage** — per-item expiry timestamps, items spoil individually over time
+- **Loot Bags** — items drop as lootable bags on death or manual drop, with countdown timers and owner beacons
+- **HUD** — health/energy/survival bars, hotbar with durability overlays, vignette and audio feedback
+- **Persistence** — full DataStore save/load for all player data (credits, stats, inventory, hotbar, durability, expiry, position)
 - **Tool Pickup** — ProximityPrompt-based world item pickup with auto-hotbar assignment
-- **HUD** — health/energy/survival bars, hotbar display, vignette and audio feedback
-- **Persistence** — full DataStore save/load for all player data (credits, stats, inventory, hotbar)
-- **Crafting** — recipe-based crafting system with server-side validation
-- **Loot Bags** — items drop as lootable bags on death or manual drop
 
 ## For World Builders
 
@@ -40,11 +46,12 @@ All gameplay values are centralized — no hunting through scripts:
 
 | File | What It Controls |
 |------|-----------------|
-| `GameplayConfig.luau` | Energy, movement speeds, health, credits, hotbar, inventory, weight |
+| `GameplayConfig.luau` | Energy, movement, health, credits, hotbar, inventory, weight, campfire, bedroll, trading, loot bags |
 | `StatsConfig.luau` | Hunger, thirst, fatigue drain rates and penalties |
-| `ItemRegistry.luau` | Item definitions (name, weight, stack size, category, effects) |
-| `CraftingConfig.luau` | Crafting recipes and ingredients |
-| `AssetIds.luau` | Roblox asset IDs for icons and audio |
+| `ItemRegistry.luau` | Item definitions (name, weight, stack size, category, durability, spoilage, effects) |
+| `CraftingConfig.luau` | Hand-crafting recipes and ingredients |
+| `CookingConfig.luau` | Campfire cooking recipes (raw → cooked, cook times, station type) |
+| `AssetIds.luau` | Roblox asset IDs for icons, sounds, animations, and meshes |
 
 ## Tech Stack
 

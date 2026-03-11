@@ -276,8 +276,8 @@ local function makeDefaultProfile(): { [string]: any }
 end
 
 -- Parses invSlots from saved data, migrating from the old items dict if needed.
-local function decodeInvSlots(raw: any): { { itemId: string, qty: number, expiries: { number }? } }
-	local result: { { itemId: string, qty: number, expiries: { number }? } } = {}
+local function decodeInvSlots(raw: any): { { itemId: string, qty: number, expiries: { number }?, durabilities: { number }? } }
+	local result: { { itemId: string, qty: number, expiries: { number }?, durabilities: { number }? } } = {}
 	if type(raw) ~= "table" then return result end
 
 	if type(raw.invSlots) == "table" then
@@ -300,7 +300,27 @@ local function decodeInvSlots(raw: any): { { itemId: string, qty: number, expiri
 						table.sort(expiries)
 						if #expiries == 0 then expiries = nil end
 					end
-					table.insert(result, { itemId = clean, qty = qty, expiries = expiries })
+					local durabilities: { number }? = nil
+					if type(entry.durabilities) == "table" then
+						durabilities = {}
+						for _, d in ipairs(entry.durabilities) do
+							if type(d) == "number" then
+								table.insert(durabilities, math.floor(d))
+							end
+						end
+						if #durabilities == 0 then durabilities = nil end
+					end
+					-- Migration: tools with durabilityMax but no saved durabilities get max
+					if not durabilities then
+						local def = ItemRegistry.get(clean)
+						if def and def.durabilityMax then
+							durabilities = {}
+							for _ = 1, qty do
+								table.insert(durabilities, def.durabilityMax)
+							end
+						end
+					end
+					table.insert(result, { itemId = clean, qty = qty, expiries = expiries, durabilities = durabilities })
 				end
 			end
 		end
@@ -310,7 +330,16 @@ local function decodeInvSlots(raw: any): { { itemId: string, qty: number, expiri
 			if type(itemId) == "string" and type(qty) == "number" and qty > 0 then
 				local clean = migrateItemId(sanitizeItemId(itemId))
 				if clean ~= "" then
-					table.insert(result, { itemId = clean, qty = math.floor(qty + 0.5) })
+					local floorQty = math.floor(qty + 0.5)
+					local durabilities: { number }? = nil
+					local def = ItemRegistry.get(clean)
+					if def and def.durabilityMax then
+						durabilities = {}
+						for _ = 1, floorQty do
+							table.insert(durabilities, def.durabilityMax)
+						end
+					end
+					table.insert(result, { itemId = clean, qty = floorQty, durabilities = durabilities })
 				end
 			end
 		end
@@ -745,12 +774,12 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 
 	-- Collect slot-based inventory from player attributes.
 	local maxSlots = math.max(1, math.floor(tonumber(player:GetAttribute("MaxInvSlots")) or 5))
-	local invSlots: { { itemId: string, qty: number, expiries: { number }? } } = {}
+	local invSlots: { { itemId: string, qty: number, expiries: { number }?, durabilities: { number }? } } = {}
 	for n = 1, maxSlots do
 		local itemId = tostring(player:GetAttribute("InvSlot_" .. n) or "")
 		local qty    = math.floor(tonumber(player:GetAttribute("InvQty_" .. n)) or 0)
 		if itemId ~= "" and qty > 0 then
-			local entry: { itemId: string, qty: number, expiries: { number }? } = { itemId = itemId, qty = qty }
+			local entry: { itemId: string, qty: number, expiries: { number }?, durabilities: { number }? } = { itemId = itemId, qty = qty }
 			-- Save per-item expiry timestamps
 			local expiryStr = player:GetAttribute("InvExpires_" .. n)
 			if type(expiryStr) == "string" and expiryStr ~= "" then
@@ -762,6 +791,18 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 				if #expiries > 0 then
 					table.sort(expiries)
 					entry.expiries = expiries
+				end
+			end
+			-- Save per-item durability values
+			local durStr = player:GetAttribute("InvDurability_" .. n)
+			if type(durStr) == "string" and durStr ~= "" then
+				local durabilities: { number } = {}
+				for d in string.gmatch(durStr, "[^,]+") do
+					local num = tonumber(d)
+					if num then table.insert(durabilities, num) end
+				end
+				if #durabilities > 0 then
+					entry.durabilities = durabilities
 				end
 			end
 			table.insert(invSlots, entry)
@@ -1108,6 +1149,15 @@ local function setupPlayer(player: Player)
 						player:SetAttribute("InvExpires_" .. n, table.concat(parts, ","))
 					end
 				end
+
+				-- Restore per-item durability values
+				if entry.durabilities and #entry.durabilities > 0 then
+					local parts = {}
+					for _, d in ipairs(entry.durabilities) do
+						table.insert(parts, tostring(math.floor(d)))
+					end
+					player:SetAttribute("InvDurability_" .. n, table.concat(parts, ","))
+				end
 			end
 		end
 	end
@@ -1149,7 +1199,7 @@ local function setupPlayer(player: Player)
 
 	-- Mark dirty when any inventory slot changes.
 	table.insert(state.playerConnections, player.AttributeChanged:Connect(function(attrName)
-		if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" or attrName:sub(1, 11) == "InvExpires_" then
+		if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" or attrName:sub(1, 11) == "InvExpires_" or attrName:sub(1, 15) == "InvDurability_" then
 			state.profileDirty = true
 		end
 	end))
