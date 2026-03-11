@@ -23,7 +23,9 @@ src/
 ├── StarterPlayer/StarterPlayerScripts/   -- Client scripts
 │   ├── HudController.client.luau         -- HUD rendering, hotbar display, campfire cooking UI
 │   ├── InventoryController.client.luau   -- Inventory panel, recipe book, drag-and-drop
-│   └── PlacementController.client.luau   -- Ghost preview placement mode for placeables
+│   ├── PlacementController.client.luau   -- Ghost preview placement mode for placeables
+│   ├── GatherController.client.luau      -- Hit-to-harvest feedback (shake, sound, animation, floating text)
+│   └── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
 │
 assets/
 ├── raw/
@@ -128,17 +130,39 @@ Slot-based inventory system using player attributes.
 - `CampfireState` — server broadcasts campfire state to nearby clients
 - `CampfireAddItem` — add item from player inventory to campfire input
 - `CampfireTakeItem` — take item from campfire slot to player inventory
+- `HarvestHit` — client fires when left-clicking near a harvest node
+- `HarvestResult` — server sends yield info (model, qty, displayName, nodeDestroyed) for client feedback
+- `HarvestNotify` — server sends error messages ("You need a knife", "Inventory full!")
+- `DeathBagBeacon` — server notifies bag owner to render beacon
+
+**BindableFunctions (ServerStorage/ServerBindables):**
+- `InventoryDumpAll` — PlayerStateService calls on death to dump all inventory into death loot bag
 
 **Loot Bags:**
 - Dropped on DropItem or death
 - Model with IntValue children for each item stack
 - ProximityPrompt (E key) to loot
-- Auto-despawn after DeathBagLifetimeSeconds (default 300s)
+- Death bags: `_isDeathBag`, `_OwnerUserId`, `_SpawnTime`, `_Lifetime` attributes
+- Auto-despawn after Lifetime seconds (default 300s for death bags)
 
 **Scatter Items:**
 - Models in Workspace with `_ScatterItem` attribute set to itemId
-- InventoryService auto-adds ProximityPrompts to them
-- Single pickup (quantity 1)
+- Instant-pickup items (twig, rock, mushroom): InventoryService auto-adds ProximityPrompts
+- Harvest nodes (reed, future ores): use left-click hit-to-harvest system, no ProximityPrompt
+
+**Hit-to-Harvest System:**
+- Resource nodes have `_NodeHealth`, `_HarvestYieldMin`/`Max`, `_HitCooldown` attributes
+- Client detects nearest harvest node within 8 studs on left-click, fires `HarvestHit`
+- Server validates range, tool requirement, cooldown, then deducts 1 HP and gives random yield
+- If inventory full, hit is blocked (node keeps HP). Node destroyed at 0 HP → respawn via ScatterSpawnService
+- Target locking: client stays locked to one node until it's destroyed or out of range
+- Remotes: `HarvestHit` (client→server), `HarvestResult` (server→client, yield + feedback), `HarvestNotify` (server→client, error messages)
+
+**Death Loot Bags:**
+- On death, `InventoryDumpAll` BindableFunction dumps all inventory into a death loot bag
+- Death bags have `_isDeathBag`, `_OwnerUserId`, `_SpawnTime`, `_Lifetime` attributes
+- `DeathBagBeacon` remote notifies the owner's client to render a golden beacon
+- LootBagController renders countdown timer on all bags, beacon only for owner's death bags
 
 ### 3. Tool Inventory (ToolInventoryService)
 
@@ -179,7 +203,48 @@ ARK/Minecraft-style station cooking. Campfires act as shared containers — any 
 **Recipes:**
 - Defined in `CookingConfig.luau` — key is raw item ID, value is `{ output, cookSeconds, station, skillLevel, displayName }`
 
-### 5. HUD (HudController)
+### 5. Scatter Spawn (ScatterSpawnService)
+
+Spawns floor-scatter items in the world within ScatterZones.
+
+**Scatter Definitions:**
+- Each item type has: `maxCount`, `respawnMin`/`Max`, visual config, optional template variants
+- Harvest nodes add: `nodeHealth`, `harvestYield` (min/max), `hitCooldown`, `requireTool`
+- Placement options: `nearWater` (spawn near water edges), `groundSink` (embed in ground), `alignToSlope` (tilt to terrain normal)
+
+**Spawn Process:**
+- Raycasts from sky to find ground position within ScatterZones
+- Rejects slopes steeper than 25° (surface normal dot product)
+- Water-edge items: must be on dry land with water within 12 studs
+- Clones Studio-placed templates from `ServerStorage/ScatterModels/` (falls back to colored placeholder parts)
+- Templates use `GetBoundingBox()` for accurate vertical positioning
+
+**Respawn:**
+- When a model is destroyed (picked up or harvested), `AncestryChanged` triggers a delayed respawn (random delay within `respawnMin`–`respawnMax`)
+
+### 6. Gather Controller (GatherController)
+
+Client-side hit feedback for the harvest system.
+
+**On HarvestResult from server:**
+- Plays tool-specific swing animation (knife/pickaxe/axe based on equipped tool kind)
+- Shakes the target model (6-frame decaying intensity)
+- Plays spatial harvest sound at the node (per-resource: reed has its own sound)
+- Shows floating "+N ItemName" text that fades upward over ~0.6s
+
+**On HarvestNotify:** Shows error text near player head (e.g. "You need a knife", "Inventory full!")
+
+### 7. Loot Bag Controller (LootBagController)
+
+Client-side rendering for loot bag timers and death bag beacons.
+
+**Countdown Timer:** BillboardGui on all loot bags showing remaining time. Updates once per second. Color shifts: white → yellow (≤60s) → red (≤30s).
+
+**Death Beacon (owner only):** Golden neon beam (200 studs tall, 1.5 studs wide), ground glow ring (cylinder), PointLight. Only rendered for the owning player's death bag via `DeathBagBeacon` remote.
+
+**Replication handling:** `waitForHandle()` with 3s timeout for bag PrimaryPart replication. `task.defer` in ChildAdded for attribute replication timing.
+
+### 8. HUD (HudController)
 
 Client-side UI rendering.
 
@@ -204,7 +269,7 @@ Client-side UI rendering.
 **Visual Effects:**
 - Vignette overlay: opacity increases as energy drops (darkens screen edges)
 
-### 6. Inventory Controller (InventoryController)
+### 9. Inventory Controller (InventoryController)
 
 Client-side inventory panel with drag-and-drop.
 

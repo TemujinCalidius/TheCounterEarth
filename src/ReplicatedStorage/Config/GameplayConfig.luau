@@ -35,7 +35,7 @@ return {
 	},
 
 	Campfire = {
-		SitRadius = 10,                -- studs: auto-sit detection range
+		SitRadius = 25,                -- studs: auto-sit detection range (matches bedroll placement range)
 		IdleTimeToSit = 3,             -- seconds standing still before auto-sit
 		HealthRegenPerSecond = 2,
 		EnergyRegenPerSecond = 5,
@@ -44,12 +44,14 @@ return {
 		DefaultCookSeconds = 4,        -- fallback if recipe omits cookSeconds
 		MaxInputStack = 10,            -- max items in campfire input slot
 		MaxOutputStack = 10,           -- max items in campfire output slot
-		InteractRange = 10,            -- studs to open campfire UI (same as SitRadius)
+		InteractRange = 25,            -- studs to open campfire UI
 	},
 
 	Bedroll = {
-		RequiredCampfireRadius = 15,   -- must place within this range of a campfire
-		KeepCampfireAliveRadius = 15,  -- bedroll↔campfire pairing range
+		RequiredCampfireRadius = 25,   -- must place within this range of a campfire
+		KeepCampfireAliveRadius = 25,  -- bedroll↔campfire pairing range
+		FatigueRegenPerSecond = 1.5,   -- fatigue restored while lying on bedroll
+		InteractRange = 6,             -- studs to trigger lie-down prompt
 	},
 
 	Inventory = {

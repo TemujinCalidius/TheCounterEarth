@@ -941,11 +941,41 @@ local function setupCharacter(player: Player, character: Model)
 		state.sprintRequested = false
 		state.energy = Config.Energy.Max
 		state.savedHealth = humanoid.MaxHealth
-		-- Status effects and bars reset on death; hunger/thirst/fatigue persist
+		-- Reset ALL survival stats on death
 		if state.bleedStacks > 0 then stopBleeding(player, state) end
 		if state.poisonStartTime then stopPoison(player, state) end
 		setBlood(player, state, StatsConfig.Blood.Max)
 		setPoison(player, state, 0)
+		setHunger(player, state, StatsConfig.Hunger.Max)
+		setThirst(player, state, StatsConfig.Thirst.Max)
+		setFatigue(player, state, StatsConfig.Fatigue.Max)
+		-- Clear bedroll rest state on death
+		if player:GetAttribute("LyingOnBedroll") == true then
+			player:SetAttribute("IsResting", false)
+			player:SetAttribute("LyingOnBedroll", false)
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if obj:IsA("Model")
+					and obj:GetAttribute("_PlacedItem") == "bedroll"
+					and obj:GetAttribute("_OccupiedBy") == player.UserId
+				then
+					obj:SetAttribute("_OccupiedBy", nil)
+					local bPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+					if bPart then
+						local bp = bPart:FindFirstChildOfClass("ProximityPrompt")
+						if bp then bp.Enabled = true end
+					end
+					break
+				end
+			end
+		end
+		-- Dump all inventory into a death loot bag
+		local deathCFrame = (character and character:FindFirstChild("HumanoidRootPart"))
+			and character.HumanoidRootPart.CFrame or CFrame.new(0, 5, 0)
+		local dumpAllFn = ServerStorage:FindFirstChild("ServerBindables")
+			and ServerStorage.ServerBindables:FindFirstChild("InventoryDumpAll")
+		if dumpAllFn then
+			dumpAllFn:Invoke(player, deathCFrame)
+		end
 		-- Snapshot bedroll for respawn teleport
 		state.deathRespawnCFrame = state.bedrollSpawnCFrame
 		state.profileDirty = true
@@ -1359,6 +1389,34 @@ RunService.Heartbeat:Connect(function(deltaTime)
 				end
 				-- Energy regen (overrides hunger/thirst penalty)
 				setEnergy(player, state, state.energy + CAMPFIRE_ENERGY_REGEN * deltaTime)
+			end
+		end
+
+		-- ── Bedroll lie-down: cancel on movement ─────────────────────────────
+		if player:GetAttribute("LyingOnBedroll") == true then
+			if moving then
+				-- Stand up: restore movement
+				player:SetAttribute("IsResting", false)
+				player:SetAttribute("LyingOnBedroll", false)
+				humanoid.WalkSpeed = shouldSprint and Config.Movement.SprintSpeed or Config.Movement.WalkSpeed
+				humanoid.JumpPower = Config.Movement.JumpPower
+
+				-- Clear bedroll occupancy
+				for _, obj in ipairs(workspace:GetChildren()) do
+					if obj:IsA("Model")
+						and obj:GetAttribute("_PlacedItem") == "bedroll"
+						and obj:GetAttribute("_OccupiedBy") == player.UserId
+					then
+						obj:SetAttribute("_OccupiedBy", nil)
+						-- Re-enable prompt
+						local bPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+						if bPart then
+							local bp = bPart:FindFirstChildOfClass("ProximityPrompt")
+							if bp then bp.Enabled = true end
+						end
+						break
+					end
+				end
 			end
 		end
 	end

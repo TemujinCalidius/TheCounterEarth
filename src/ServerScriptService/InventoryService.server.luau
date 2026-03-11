@@ -412,9 +412,13 @@ local function createLootBag(player: Player, items: { { itemId: string, qty: num
 	local origin    = rootPart and rootPart.CFrame or CFrame.new(0, 5, 0)
 	local dropCFrame = origin * CFrame.new(0, -2.5, -3.5)
 
+	local lifetime = (GameplayConfig.Inventory and GameplayConfig.Inventory.DeathBagLifetimeSeconds) or 300
+
 	local bag = Instance.new("Model")
 	bag.Name = "LootBag"
 	bag:SetAttribute("_isLootBag", true)
+	bag:SetAttribute("_SpawnTime", os.time())
+	bag:SetAttribute("_Lifetime", lifetime)
 
 	local handle = Instance.new("Part")
 	handle.Name          = "Handle"
@@ -452,15 +456,18 @@ local function createLootBag(player: Player, items: { { itemId: string, qty: num
 		for _, child in ipairs(bag:GetChildren()) do
 			if child:IsA("IntValue") then
 				local id = sanitizeItemId(child.Name)
-				if id ~= "" and not addQty(lootingPlayer, id, child.Value) then
-					allAdded = false
+				if id ~= "" then
+					if addQty(lootingPlayer, id, child.Value) then
+						child:Destroy()
+					else
+						allAdded = false
+					end
 				end
 			end
 		end
 		if allAdded then bag:Destroy() end
 	end)
 
-	local lifetime = (GameplayConfig.Inventory and GameplayConfig.Inventory.DeathBagLifetimeSeconds) or 300
 	task.delay(lifetime, function()
 		if bag and bag.Parent then bag:Destroy() end
 	end)
@@ -503,6 +510,124 @@ end
 local SCATTER_ATTR    = "_ScatterItem"
 local SCATTER_MANAGED = "_ScatterManaged"
 
+-- ── Hit-to-harvest system ───────────────────────────────────────────────
+-- Each left-click = one hit.  Server validates tool, range, cooldown,
+-- deducts node HP, gives yield, destroys node at 0 HP.
+
+local harvestHitRemote     = makeRemote("HarvestHit")
+local harvestResultRemote  = makeRemote("HarvestResult")
+local harvestNotifyRemote  = makeRemote("HarvestNotify")
+
+-- Returns the harvestTags of the player's currently equipped tool, or nil.
+local function getEquippedHarvestTags(player: Player): { string }?
+	local eqSlot = math.floor(tonumber(player:GetAttribute("HotbarEquippedSlot")) or 0)
+	if eqSlot < 1 or eqSlot > HOTBAR_SIZE then return nil end
+	local eqItemId = tostring(player:GetAttribute(slotAttrName(eqSlot)) or "")
+	if eqItemId == "" then return nil end
+	local eqDef = ItemRegistry.get(eqItemId)
+	if not eqDef or not eqDef.tool or not eqDef.tool.harvestTags then return nil end
+	return eqDef.tool.harvestTags
+end
+
+local function hasHarvestTag(player: Player, tag: string): boolean
+	local tags = getEquippedHarvestTags(player)
+	if not tags then return false end
+	for _, t in tags do
+		if t == tag then return true end
+	end
+	return false
+end
+
+local HARVEST_MAX_DIST = 8
+local lastHitTime: { [Player]: number } = {}
+
+harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
+	-- Validate target
+	if typeof(targetModel) ~= "Instance" or not targetModel:IsA("Model") then return end
+	if not targetModel.Parent or not targetModel:IsDescendantOf(Workspace) then return end
+
+	local itemId = sanitizeItemId(targetModel:GetAttribute(SCATTER_ATTR) or "")
+	if itemId == "" then return end
+
+	local nodeHP = tonumber(targetModel:GetAttribute("_NodeHealth")) or 0
+	if nodeHP <= 0 then return end
+
+	-- Range check
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local modelPart = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart")
+	if not root or not modelPart then return end
+	if (root.Position - modelPart.Position).Magnitude > HARVEST_MAX_DIST then return end
+
+	-- Server-side cooldown (prevent fast-fire exploits)
+	local cooldown = tonumber(targetModel:GetAttribute("_HitCooldown")) or 0.8
+	local now = os.clock()
+	if lastHitTime[player] and (now - lastHitTime[player]) < cooldown * 0.9 then return end
+	lastHitTime[player] = now
+
+	-- Tool check
+	local requireTool = targetModel:GetAttribute("_RequireTool")
+	if requireTool and not hasHarvestTag(player, requireTool) then
+		harvestNotifyRemote:FireClient(player, "You need a knife to harvest this")
+		return
+	end
+
+	-- Player must be alive
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
+
+	-- Calculate yield
+	local yieldMin = tonumber(targetModel:GetAttribute("_HarvestYieldMin")) or 1
+	local yieldMax = tonumber(targetModel:GetAttribute("_HarvestYieldMax")) or 1
+	local yield = math.random(yieldMin, yieldMax)
+
+	-- Give items (block hit if inventory full — node keeps its HP)
+	local added = addQty(player, itemId, yield)
+	if not added then
+		harvestNotifyRemote:FireClient(player, "Inventory full!")
+		return
+	end
+
+	-- Deduct node HP
+	local newHP = nodeHP - 1
+	targetModel:SetAttribute("_NodeHealth", newHP)
+
+	-- Get display name for floating text
+	local def = ItemRegistry.get(itemId)
+	local displayName = def and def.displayName or itemId
+
+	-- Notify harvesting player of successful hit (yield text + shake + sound)
+	local nodeDestroyed = newHP <= 0
+	harvestResultRemote:FireClient(player, targetModel, yield, displayName, nodeDestroyed)
+
+	-- Notify nearby players (shake + sound only, no yield text)
+	local nodeRoot = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart")
+	if nodeRoot then
+		local nodePos = nodeRoot.Position
+		for _, other in Players:GetPlayers() do
+			if other ~= player then
+				local otherChar = other.Character
+				local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
+				if otherRoot and (otherRoot.Position - nodePos).Magnitude <= 40 then
+					harvestResultRemote:FireClient(other, targetModel, 0, "", nodeDestroyed)
+				end
+			end
+		end
+	end
+
+	-- Destroy node if HP depleted (AncestryChanged in ScatterSpawnService triggers respawn)
+	if nodeDestroyed then
+		targetModel:Destroy()
+	end
+end)
+
+-- Clean up cooldown tracking on leave
+Players.PlayerRemoving:Connect(function(player)
+	lastHitTime[player] = nil
+end)
+
+-- ── Setup scatter items ─────────────────────────────────────────────────
+
 local function setupScatterItem(model: Model)
 	if model:GetAttribute(SCATTER_MANAGED) then return end
 	local itemId = sanitizeItemId(model:GetAttribute(SCATTER_ATTR) or "")
@@ -514,17 +639,44 @@ local function setupScatterItem(model: Model)
 
 	model:SetAttribute(SCATTER_MANAGED, true)
 
+	local nodeHealth = tonumber(model:GetAttribute("_NodeHealth")) or 0
+
+	-- Harvest nodes use left-click instead of ProximityPrompt.
+	-- Add a floating name label so players can identify the resource.
+	if nodeHealth > 0 then
+		local bb = Instance.new("BillboardGui")
+		bb.Name              = "GatherLabel"
+		bb.Adornee           = rootPart
+		bb.Size              = UDim2.new(0, 120, 0, 20)
+		bb.StudsOffset       = Vector3.new(0, 2, 0)
+		bb.AlwaysOnTop       = false
+		bb.MaxDistance        = 15
+		bb.Parent            = model
+
+		local label = Instance.new("TextLabel")
+		label.Size                  = UDim2.new(1, 0, 1, 0)
+		label.BackgroundTransparency = 1
+		label.Text                  = def.displayName
+		label.TextColor3            = Color3.fromRGB(220, 230, 200)
+		label.Font                  = Enum.Font.GothamBold
+		label.TextSize              = 14
+		label.TextStrokeTransparency = 0.4
+		label.TextStrokeColor3      = Color3.fromRGB(0, 0, 0)
+		label.Parent                = bb
+		return
+	end
+
 	local prompt = rootPart:FindFirstChildOfClass("ProximityPrompt")
 	if not prompt then
 		prompt = Instance.new("ProximityPrompt")
 		prompt.Parent = rootPart
 	end
-	prompt.ActionText            = "Pick Up"
 	prompt.ObjectText            = def.displayName
 	prompt.KeyboardKeyCode       = Enum.KeyCode.E
 	prompt.HoldDuration          = 0
 	prompt.MaxActivationDistance = 8
 	prompt.RequiresLineOfSight   = false
+	prompt.ActionText = "Pick Up"
 
 	prompt.Triggered:Connect(function(player)
 		if not model or not model.Parent then return end
@@ -574,6 +726,134 @@ invGetQtyFunc.OnInvoke = function(player: Player, itemId: string): number
 	local id = sanitizeItemId(itemId)
 	if id == "" then return 0 end
 	return getTotalQty(player, id)
+end
+
+-- ── Death loot bag (owner-only beacon, countdown timer) ──────────────────
+
+local deathBagBeaconRemote = makeRemote("DeathBagBeacon")
+
+local function createDeathLootBag(player: Player, items: { { itemId: string, qty: number } }, deathCFrame: CFrame)
+	if #items == 0 then return end
+
+	local dropCFrame = deathCFrame * CFrame.new(0, -2.5, -3.5)
+
+	local bag = Instance.new("Model")
+	bag.Name = "LootBag"
+	bag:SetAttribute("_isLootBag", true)
+	bag:SetAttribute("_isDeathBag", true)
+	bag:SetAttribute("_OwnerUserId", player.UserId)
+	bag:SetAttribute("_SpawnTime", os.time())
+
+	local lifetime = (GameplayConfig.Inventory and GameplayConfig.Inventory.DeathBagLifetimeSeconds) or 300
+	bag:SetAttribute("_Lifetime", lifetime)
+
+	local handle = Instance.new("Part")
+	handle.Name          = "Handle"
+	handle.Size          = Vector3.new(1.2, 1.2, 1.2)
+	handle.CFrame        = dropCFrame
+	handle.Anchored      = true
+	handle.BrickColor    = BrickColor.new("Reddish brown")
+	handle.Material      = Enum.Material.Fabric
+	handle.Shape         = Enum.PartType.Ball
+	handle.TopSurface    = Enum.SurfaceType.Smooth
+	handle.BottomSurface = Enum.SurfaceType.Smooth
+	handle.Parent        = bag
+	bag.PrimaryPart      = handle
+
+	for _, entry in ipairs(items) do
+		local v = Instance.new("IntValue")
+		v.Name   = entry.itemId
+		v.Value  = entry.qty
+		v.Parent = bag
+	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText            = "Loot"
+	prompt.ObjectText            = "Bag"
+	prompt.KeyboardKeyCode       = Enum.KeyCode.E
+	prompt.HoldDuration          = 0
+	prompt.MaxActivationDistance = 8
+	prompt.RequiresLineOfSight   = false
+	prompt.Parent                = handle
+	bag.Parent = Workspace
+
+	prompt.Triggered:Connect(function(lootingPlayer)
+		if not bag.Parent then return end
+		local allAdded = true
+		for _, child in ipairs(bag:GetChildren()) do
+			if child:IsA("IntValue") then
+				local id = sanitizeItemId(child.Name)
+				if id ~= "" then
+					if addQty(lootingPlayer, id, child.Value) then
+						child:Destroy()
+					else
+						allAdded = false
+					end
+				end
+			end
+		end
+		if allAdded then bag:Destroy() end
+	end)
+
+	task.delay(lifetime, function()
+		if bag and bag.Parent then bag:Destroy() end
+	end)
+
+	-- Fire beacon to the owner client
+	deathBagBeaconRemote:FireClient(player, bag, lifetime)
+end
+
+-- ── Dump all inventory (called by PlayerStateService on death) ───────────
+
+local invDumpAllFunc = Instance.new("BindableFunction")
+invDumpAllFunc.Name = "InventoryDumpAll"
+invDumpAllFunc.Parent = invBindables
+invDumpAllFunc.OnInvoke = function(player: Player, deathCFrame: CFrame)
+	local maxSlots = getMaxSlots(player)
+	local items: { { itemId: string, qty: number } } = {}
+
+	-- Collect all inventory contents
+	for n = 1, maxSlots do
+		local itemId = getSlotItemId(player, n)
+		local qty    = getSlotQty(player, n)
+		if itemId ~= "" and qty > 0 then
+			table.insert(items, { itemId = itemId, qty = qty })
+			setSlot(player, n, "", 0)
+			setSlotExpiries(player, n, nil)
+		end
+	end
+
+	-- Clear hotbar slots
+	for slot = 1, HOTBAR_SIZE do
+		player:SetAttribute(slotAttrName(slot), nil)
+	end
+	player:SetAttribute("HotbarEquippedSlot", nil)
+
+	-- Destroy any equipped tool in character
+	local character = player.Character
+	if character then
+		for _, child in ipairs(character:GetChildren()) do
+			if child:IsA("Tool") then
+				child:Destroy()
+			end
+		end
+	end
+
+	-- Clear backpack tools
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if backpack then
+		for _, child in ipairs(backpack:GetChildren()) do
+			if child:IsA("Tool") then
+				child:Destroy()
+			end
+		end
+	end
+
+	-- Refresh weight to 0
+	refreshWeight(player)
+
+	-- Create death loot bag at death position
+	createDeathLootBag(player, items, deathCFrame)
 end
 
 -- ── UseItem ───────────────────────────────────────────────────────────────
@@ -936,6 +1216,51 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 		prompt.HoldDuration = 0
 		prompt.RequiresLineOfSight = false
 		prompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
+	end
+
+	-- Add ProximityPrompt for bedroll lie-down
+	if itemId == "bedroll" then
+		local bedrollRange = (GameplayConfig.Bedroll and GameplayConfig.Bedroll.InteractRange) or 6
+		local bedrollPrompt = Instance.new("ProximityPrompt")
+		bedrollPrompt.ActionText = "Lie Down"
+		bedrollPrompt.ObjectText = "Bedroll"
+		bedrollPrompt.MaxActivationDistance = bedrollRange
+		bedrollPrompt.HoldDuration = 0
+		bedrollPrompt.RequiresLineOfSight = false
+		bedrollPrompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
+
+		bedrollPrompt.Triggered:Connect(function(trigPlayer)
+			-- One person at a time
+			if placed:GetAttribute("_OccupiedBy") then return end
+			-- Check player isn't already lying on another bedroll
+			if trigPlayer:GetAttribute("LyingOnBedroll") == true then return end
+
+			local character = trigPlayer.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			if not humanoid or not rootPart then return end
+
+			-- Mark bedroll as occupied
+			placed:SetAttribute("_OccupiedBy", trigPlayer.UserId)
+
+			-- Set player state
+			trigPlayer:SetAttribute("IsResting", true)
+			trigPlayer:SetAttribute("LyingOnBedroll", true)
+
+			-- Teleport player onto the bedroll
+			local bedrollPart = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
+			if bedrollPart then
+				rootPart.CFrame = bedrollPart.CFrame * CFrame.Angles(0, math.rad(90), 0) + Vector3.new(0, 1, 0)
+			end
+
+			-- Disable movement
+			humanoid.WalkSpeed = 0
+			humanoid.JumpHeight = 0
+			humanoid.JumpPower = 0
+
+			-- Hide prompt while occupied
+			bedrollPrompt.Enabled = false
+		end)
 	end
 
 	placed:PivotTo(rawCFrame)

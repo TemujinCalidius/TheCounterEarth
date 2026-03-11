@@ -1178,6 +1178,48 @@ local function refreshItemList()
 				qtyLbl.ZIndex             = slot.ZIndex + 1
 				qtyLbl.Parent             = slot
 			end
+
+			-- Spoil bar (thin bar at bottom for perishable items)
+			if def and def.perishSeconds then
+				local expiryStr = player:GetAttribute("InvExpires_" .. n)
+				if expiryStr and expiryStr ~= "" then
+					local earliest = math.huge
+					for ts in string.gmatch(expiryStr, "[^,]+") do
+						local t = tonumber(ts)
+						if t and t < earliest then earliest = t end
+					end
+					if earliest < math.huge then
+						local now = os.time()
+						local remaining = math.max(0, earliest - now)
+						local ratio = math.clamp(remaining / def.perishSeconds, 0, 1)
+						-- Green → Yellow → Red
+						local barColor = Color3.fromRGB(
+							math.floor(255 * math.clamp((1 - ratio) * 2, 0, 1)),
+							math.floor(255 * math.clamp(ratio * 2, 0, 1)),
+							0
+						)
+
+						local barBg = Instance.new("Frame")
+						barBg.Name                  = "SpoilBarBg"
+						barBg.Size                  = UDim2.new(1, -6, 0, 3)
+						barBg.Position              = UDim2.new(0, 3, 1, -5)
+						barBg.BackgroundColor3      = Color3.fromRGB(20, 20, 20)
+						barBg.BorderSizePixel       = 0
+						barBg.ZIndex                = slot.ZIndex + 2
+						barBg.Parent                = slot
+						addCorner(barBg, 2)
+
+						local barFill = Instance.new("Frame")
+						barFill.Name                = "SpoilBarFill"
+						barFill.Size                = UDim2.new(ratio, 0, 1, 0)
+						barFill.BackgroundColor3    = barColor
+						barFill.BorderSizePixel     = 0
+						barFill.ZIndex              = slot.ZIndex + 3
+						barFill.Parent              = barBg
+						addCorner(barFill, 2)
+					end
+				end
+			end
 		else
 			-- Slot number label for empty slots
 			makeLabel(slot, {
@@ -1362,8 +1404,9 @@ ContextActionService:BindActionAtPriority(
 player.AttributeChanged:Connect(function(attrName: string)
 	if not isOpen then return end
 
-	if attrName:sub(1, 9) == "InvSlot_"
+	if attrName:sub(1, 8) == "InvSlot_"
 		or attrName:sub(1, 7) == "InvQty_"
+		or attrName:sub(1, 11) == "InvExpires_"
 		or attrName == "CarryWeight"
 		or attrName == "MaxCarryWeight"
 		or attrName == "MaxInvSlots"

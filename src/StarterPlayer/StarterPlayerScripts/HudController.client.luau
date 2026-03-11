@@ -22,6 +22,10 @@ local hotbarAttackRemote      = remotesFolder:WaitForChild("HotbarAttackRequest"
 local unpinFromHotbarRemote   = remotesFolder:WaitForChild("UnpinFromHotbar")
 local swapHotbarSlotsRemote   = remotesFolder:WaitForChild("SwapHotbarSlots")
 local useItemRemote           = remotesFolder:WaitForChild("UseItem")
+local harvestHitRemote        = remotesFolder:WaitForChild("HarvestHit")
+local HARVEST_HIT_COOLDOWN    = 1.5
+local lastHarvestHitTime      = 0
+local lastHarvestTarget: Model? = nil
 local startPlacementEvent     = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
 local CookingConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
@@ -503,6 +507,8 @@ type HotbarSlotUI = {
 	abbrevLabel: TextLabel,
 	unpinBtn:    TextButton,
 	qtyLabel:    TextLabel,
+	spoilBarBg:  Frame,
+	spoilBarFill: Frame,
 }
 local hotbarSlotUIs: { HotbarSlotUI } = {}
 
@@ -603,6 +609,27 @@ for slot = 1, hotbarSlotCount do
 	qtyLabel.ZIndex             = 3
 	qtyLabel.Parent             = slotFrame
 
+	-- Spoil bar (thin bar at bottom, hidden by default)
+	local spoilBarBg = Instance.new("Frame")
+	spoilBarBg.Name                  = "SpoilBarBg"
+	spoilBarBg.Size                  = UDim2.new(1, -6, 0, 3)
+	spoilBarBg.Position              = UDim2.new(0, 3, 1, -5)
+	spoilBarBg.BackgroundColor3      = Color3.fromRGB(20, 20, 20)
+	spoilBarBg.BorderSizePixel       = 0
+	spoilBarBg.Visible               = false
+	spoilBarBg.ZIndex                = 4
+	spoilBarBg.Parent                = slotFrame
+	createRoundedCorner(spoilBarBg, UDim.new(0, 2))
+
+	local spoilBarFill = Instance.new("Frame")
+	spoilBarFill.Name                = "SpoilBarFill"
+	spoilBarFill.Size                = UDim2.new(1, 0, 1, 0)
+	spoilBarFill.BackgroundColor3    = Color3.fromRGB(0, 255, 0)
+	spoilBarFill.BorderSizePixel     = 0
+	spoilBarFill.ZIndex              = 5
+	spoilBarFill.Parent              = spoilBarBg
+	createRoundedCorner(spoilBarFill, UDim.new(0, 2))
+
 	-- Drag to reorder hotbar slots.
 	slotFrame.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
@@ -611,12 +638,14 @@ for slot = 1, hotbarSlotCount do
 	end)
 
 	hotbarSlotUIs[slot] = {
-		frame       = slotFrame,
-		stroke      = slotStroke,
-		iconImage   = iconImage,
-		abbrevLabel = abbrevLabel,
-		unpinBtn    = unpinBtn,
-		qtyLabel    = qtyLabel,
+		frame        = slotFrame,
+		stroke       = slotStroke,
+		iconImage    = iconImage,
+		abbrevLabel  = abbrevLabel,
+		unpinBtn     = unpinBtn,
+		qtyLabel     = qtyLabel,
+		spoilBarBg   = spoilBarBg,
+		spoilBarFill = spoilBarFill,
 	}
 end
 
@@ -729,6 +758,43 @@ local function refreshHotbar()
 			ui.qtyLabel.Visible = false
 		end
 
+		-- Spoil bar: find the earliest expiry across all matching inventory slots
+		if itemId ~= "" then
+			local def2 = ItemRegistry.get(itemId)
+			if def2 and def2.perishSeconds then
+				local maxSlots = math.max(1, math.floor(tonumber(player:GetAttribute("MaxInvSlots")) or 5))
+				local earliest = math.huge
+				for n = 1, maxSlots do
+					if tostring(player:GetAttribute("InvSlot_" .. n) or "") == itemId then
+						local expiryStr = player:GetAttribute("InvExpires_" .. n)
+						if expiryStr and expiryStr ~= "" then
+							for ts in string.gmatch(expiryStr, "[^,]+") do
+								local t = tonumber(ts)
+								if t and t < earliest then earliest = t end
+							end
+						end
+					end
+				end
+				if earliest < math.huge then
+					local remaining = math.max(0, earliest - os.time())
+					local ratio = math.clamp(remaining / def2.perishSeconds, 0, 1)
+					ui.spoilBarFill.Size = UDim2.new(ratio, 0, 1, 0)
+					ui.spoilBarFill.BackgroundColor3 = Color3.fromRGB(
+						math.floor(255 * math.clamp((1 - ratio) * 2, 0, 1)),
+						math.floor(255 * math.clamp(ratio * 2, 0, 1)),
+						0
+					)
+					ui.spoilBarBg.Visible = true
+				else
+					ui.spoilBarBg.Visible = false
+				end
+			else
+				ui.spoilBarBg.Visible = false
+			end
+		else
+			ui.spoilBarBg.Visible = false
+		end
+
 		-- Selection highlight
 		local isEquipped = slot == equippedSlot
 		ui.stroke.Color       = isEquipped and Color3.fromRGB(115, 230, 140) or Color3.fromRGB(95, 105, 125)
@@ -743,7 +809,7 @@ end
 player:GetAttributeChangedSignal("HotbarEquippedSlot"):Connect(refreshHotbar)
 -- Refresh qty badges when consumable stacks are consumed/gained.
 player.AttributeChanged:Connect(function(attrName)
-	if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" then
+	if attrName:sub(1, 8) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" or attrName:sub(1, 11) == "InvExpires_" then
 		refreshHotbar()
 	end
 end)
@@ -810,6 +876,61 @@ local function tryAttackWithEquippedItem()
 			isEating = false
 		end)
 		return
+	end
+
+	-- Proximity harvest: left-click anywhere while near a harvest node.
+	-- Locks onto one target at a time — won't switch to a nearby node mid-harvest.
+	do
+		-- Client-side cooldown (1.5s) — lets the animation play out
+		local now = os.clock()
+		if (now - lastHarvestHitTime) < HARVEST_HIT_COOLDOWN then
+			return
+		end
+
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root then
+			-- If we have a locked target, keep hitting it until it's gone or out of range
+			if lastHarvestTarget and lastHarvestTarget.Parent then
+				local hp = tonumber(lastHarvestTarget:GetAttribute("_NodeHealth")) or 0
+				local part = lastHarvestTarget.PrimaryPart or lastHarvestTarget:FindFirstChildWhichIsA("BasePart")
+				if hp > 0 and part and (root.Position - part.Position).Magnitude < 8 then
+					lastHarvestHitTime = now
+					harvestHitRemote:FireServer(lastHarvestTarget)
+					return
+				end
+				-- Target dead or out of range — release lock
+				lastHarvestTarget = nil
+			end
+
+			-- Find the closest harvest node within range
+			local scatterFolder = Workspace:FindFirstChild("Scatter")
+			if scatterFolder then
+				local bestDist = 8
+				local bestNode: Model? = nil
+				for _, child in scatterFolder:GetChildren() do
+					if child:IsA("Model") and child:GetAttribute("_ScatterItem") then
+						local hp = tonumber(child:GetAttribute("_NodeHealth")) or 0
+						if hp > 0 then
+							local part = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+							if part then
+								local dist = (root.Position - part.Position).Magnitude
+								if dist < bestDist then
+									bestDist = dist
+									bestNode = child
+								end
+							end
+						end
+					end
+				end
+				if bestNode then
+					lastHarvestTarget = bestNode
+					lastHarvestHitTime = now
+					harvestHitRemote:FireServer(bestNode)
+					return
+				end
+			end
+		end
 	end
 
 	hotbarAttackRemote:FireServer()
@@ -1716,5 +1837,47 @@ player:GetAttributeChangedSignal("SittingAtCampfire"):Connect(function()
 		startSitAnimation()
 	else
 		stopSitAnimation()
+	end
+end)
+
+-- ---------------------------------------------------------------------------
+-- Bedroll sleeping animation — server sets LyingOnBedroll attribute
+-- ---------------------------------------------------------------------------
+
+local sleepTrack: AnimationTrack? = nil
+
+local function startSleepAnimation()
+	if AssetIds.Animations.Sleeping == "" then return end -- no animation uploaded yet
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	local animator = hum:FindFirstChildOfClass("Animator")
+	if not animator then return end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = AssetIds.Animations.Sleeping
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(anim)
+	end)
+	if ok and track then
+		sleepTrack = track
+		sleepTrack.Priority = Enum.AnimationPriority.Action4
+		sleepTrack.Looped = true
+		sleepTrack:Play()
+	end
+end
+
+local function stopSleepAnimation()
+	if sleepTrack then
+		sleepTrack:Stop()
+		sleepTrack = nil
+	end
+end
+
+player:GetAttributeChangedSignal("LyingOnBedroll"):Connect(function()
+	if player:GetAttribute("LyingOnBedroll") == true then
+		startSleepAnimation()
+	else
+		stopSleepAnimation()
 	end
 end)

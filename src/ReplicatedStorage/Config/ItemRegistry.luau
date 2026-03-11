@@ -161,7 +161,7 @@ Items.stone_knife = {
 		damage = 3,
 	},
 	tags = { "tool", "knife", "weapon", "tier0", "primitive" },
-	icon = "",
+	icon = "rbxassetid://122399662411193",
 }
 
 -- ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ Items.bedroll = {
 	slotSize = { w = 2, h = 3 },
 	category = "placeable",
 	tags = { "placeable", "respawn", "tier0" },
-	icon = "",
+	icon = "rbxassetid://71441394289581",
 }
 
 -- ---------------------------------------------------------------------------
@@ -229,7 +229,7 @@ Items.reed = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "reed", "tier1" },
-	icon = "",
+	icon = "rbxassetid://99940535604564",
 }
 
 Items.iron_ore = {

@@ -5,6 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.9.0] - 2026-03-11
+
+### Added
+- **Death loot bag system** — on death, ALL inventory items are dumped into a death loot bag at the death location. Stats reset to 100% (not 80%)
+- **Death bag beacon** — owner-only golden neon beam (200 studs tall) with ground glow ring and PointLight, visible from far away. Other players see the bag but not the beacon
+- **Loot bag countdown timer** — BillboardGui timer on all loot bags showing remaining time (M:SS format). Color shifts white → yellow (60s) → red (30s)
+- **LootBagController** (`LootBagController.client.luau`) — client script rendering countdown timers and owner-only beacons on loot bags
+- **`DeathBagBeacon` remote** — server notifies bag owner's client to render the beacon
+- **`InventoryDumpAll` BindableFunction** — cross-service function for PlayerStateService to trigger full inventory dump on death
+- **Hit-to-harvest system** — ARK-style resource gathering replaces the old channel/progress-bar system. Each left-click with the correct tool = one hit that damages the node and yields resources
+- **Resource node HP** — harvest nodes have `_NodeHealth` attribute. Each hit deducts 1 HP, node breaks when HP reaches 0 and respawns after cooldown
+- **Harvest yield per hit** — configurable min/max yield per hit (e.g. reed gives 1-2 per hit with stone knife). Tool tier will scale yield in future
+- **Proximity-based harvesting** — left-click anywhere while near a harvest node (8 studs) with the correct tool. No need to aim at the node
+- **Target locking** — once you start hitting a node, subsequent clicks keep hitting that same node until it's destroyed or out of range. Prevents accidental switching between nearby nodes
+- **Harvest hit cooldown** — 1.5s cooldown between hits (client + server enforced), lets the swing animation play out
+- **Harvest feedback** — model shake on hit (6-frame decaying intensity), floating "+N ItemName" text that fades upward, per-tool-kind swing animation, per-resource sound effect
+- **Per-tool harvest animations** — `HarvestKnife`, `HarvestPickaxe`, `HarvestAxe` animation slots in AssetIds. Animation auto-selected based on equipped tool kind
+- **Reed harvest sound** — spatial sound effect plays at the node's position on each hit
+- **Floating name labels** — harvest nodes show their display name as a BillboardGui visible within 15 studs (replaces removed ProximityPrompt)
+- **Reed icon** — `rbxassetid://99940535604564` added to AssetIds and ItemRegistry
+- **Scatter slope alignment** — `alignToSlope` option tilts scatter models to match terrain surface normal (used for reeds on shoreline slopes)
+- **Scatter ground sink** — `groundSink` option sinks models into the ground to hide floating on slopes (reed: 0.3 studs)
+
+### Changed
+- **Death stat reset** — all survival stats (hunger, thirst, fatigue, blood) now reset to their `.Max` value (100) on death, not `.StartValue` (80)
+- **Scatter slope rejection** — raycasts now return surface normal; positions on slopes steeper than 25° are rejected for scatter placement
+- **Reed water edge radius** — increased from 6 to 12 studs for `hasWaterNearby` check, reducing shoreline floating
+- **Reed ProximityPrompt removed** — reeds (and all gather items with `nodeHealth > 0`) no longer use ProximityPrompt. Interaction is via left-click proximity
+- **GatherController rewritten** — replaced progress bar system with hit feedback controller (shake, floating text, sound, animation)
+- **Scatter defs** — `gatherSeconds` replaced with `nodeHealth`, `harvestYield`, `hitCooldown` fields
+- **InventoryService remotes** — `GatherStart`/`GatherCancel`/`GatherComplete`/`GatherRequest` replaced with `HarvestHit`/`HarvestResult`/`HarvestNotify`
+
+### Removed
+- **Gather channel system** — removed `activeGathers` table, `cancelGather`/`completeGather` functions, Heartbeat validation loop, `_BeingGathered` attribute, `_GatherSeconds` attribute
+- **GatherStart/GatherCancel/GatherComplete remotes** — replaced by hit-based remotes
+
+### Fixed
+- **Scatter items floating** — removed artificial +0.3 Y offset, added `GetBoundingBox()` for accurate model height, added slope rejection and ground sink
+- **Loot bag timer not showing** — fixed replication timing: `waitForHandle()` with 3s timeout and `task.defer` in ChildAdded handler
+- **Beacon not visible** — widened beam to 1.5 studs, reduced transparency, added ground glow ring and PointLight
+
+---
+
 ## [0.8.0] - 2026-03-09
 
 ### Added
