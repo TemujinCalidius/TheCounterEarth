@@ -33,6 +33,9 @@ local openCampfireRemote   = remotesFolder:WaitForChild("OpenCampfire")
 local campfireStateRemote  = remotesFolder:WaitForChild("CampfireState")
 local campfireAddRemote    = remotesFolder:WaitForChild("CampfireAddItem")
 local campfireTakeRemote   = remotesFolder:WaitForChild("CampfireTakeItem")
+local openLootBagRemote    = remotesFolder:WaitForChild("OpenLootBag")
+local lootBagStateRemote   = remotesFolder:WaitForChild("LootBagState")
+local takeLootBagItemRemote = remotesFolder:WaitForChild("TakeLootBagItem")
 local hotbarSlotCount = math.clamp(math.floor(tonumber(Config.Hotbar and Config.Hotbar.Slots) or 9), 1, 9)
 
 -- Expanded survival panel dimensions
@@ -1786,10 +1789,323 @@ for _, desc in ipairs(Workspace:GetDescendants()) do
 end
 
 -- Close cooking panel on Escape
+-- ---------------------------------------------------------------------------
+-- Loot Bag UI — popup panel showing bag contents with click/drag-to-take
+-- ---------------------------------------------------------------------------
+
+local lootBagPanel: Frame? = nil
+local activeLootBag: Model? = nil
+local lootBagContents: { { itemId: string, qty: number, displayName: string } }? = nil
+
+local LOOT_SLOT_SIZE = 56
+local LOOT_COLUMNS = 4
+local LOOT_PADDING = 6
+
+local function refreshLootBagUI()
+	if not lootBagPanel or not lootBagContents then return end
+
+	local scroll = lootBagPanel:FindFirstChild("ItemScroll") :: ScrollingFrame
+	if not scroll then return end
+
+	-- Clear existing slots
+	for _, child in ipairs(scroll:GetChildren()) do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+
+	for idx, entry in ipairs(lootBagContents) do
+		local btn = Instance.new("TextButton")
+		btn.Name = "LootSlot_" .. idx
+		btn.Size = UDim2.fromOffset(LOOT_SLOT_SIZE, LOOT_SLOT_SIZE)
+		btn.LayoutOrder = idx
+		btn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+		btn.BackgroundTransparency = 0.1
+		btn.BorderSizePixel = 0
+		btn.Text = ""
+		btn.AutoButtonColor = true
+		btn.Parent = scroll
+
+		btn:SetAttribute("_LootItemId", entry.itemId)
+		btn:SetAttribute("_LootQty", entry.qty)
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = btn
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(95, 105, 125)
+		stroke.Transparency = 0.4
+		stroke.Thickness = 1
+		stroke.Parent = btn
+
+		local icon = getItemIcon(entry.itemId)
+		if icon ~= "" then
+			local img = Instance.new("ImageLabel")
+			img.Name = "Icon"
+			img.Size = UDim2.fromOffset(40, 40)
+			img.Position = UDim2.fromOffset(8, 6)
+			img.BackgroundTransparency = 1
+			img.ScaleType = Enum.ScaleType.Fit
+			img.Image = icon
+			img.Parent = btn
+		else
+			btn.Text = getItemAbbrev(entry.itemId)
+			btn.TextColor3 = Color3.fromRGB(200, 200, 210)
+			btn.TextSize = 11
+			btn.Font = Enum.Font.GothamMedium
+		end
+
+		if entry.qty > 1 then
+			local qtyLabel = Instance.new("TextLabel")
+			qtyLabel.Name = "Qty"
+			qtyLabel.Size = UDim2.fromOffset(24, 14)
+			qtyLabel.Position = UDim2.new(1, -26, 1, -16)
+			qtyLabel.BackgroundTransparency = 1
+			qtyLabel.Text = tostring(entry.qty)
+			qtyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			qtyLabel.TextSize = 11
+			qtyLabel.Font = Enum.Font.GothamBold
+			qtyLabel.TextXAlignment = Enum.TextXAlignment.Right
+			qtyLabel.TextStrokeTransparency = 0.5
+			qtyLabel.Parent = btn
+		end
+
+		-- Item name tooltip below icon
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(1, 0, 0, 10)
+		nameLabel.Position = UDim2.new(0, 0, 1, -12)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = entry.displayName
+		nameLabel.TextColor3 = Color3.fromRGB(160, 165, 180)
+		nameLabel.TextSize = 8
+		nameLabel.Font = Enum.Font.GothamMedium
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLabel.Parent = btn
+
+		-- Click to take entire stack
+		btn.MouseButton1Click:Connect(function()
+			if not activeLootBag or not activeLootBag.Parent then return end
+			takeLootBagItemRemote:FireServer(activeLootBag, entry.itemId, entry.qty)
+		end)
+	end
+
+	-- Resize scroll canvas
+	local rows = math.ceil(#lootBagContents / LOOT_COLUMNS)
+	scroll.CanvasSize = UDim2.fromOffset(0, rows * (LOOT_SLOT_SIZE + LOOT_PADDING) + LOOT_PADDING)
+end
+
+local function buildLootBagPanel()
+	if lootBagPanel then return end
+
+	local panel = Instance.new("Frame")
+	panel.Name = "LootBagPanel"
+	panel.Size = UDim2.fromOffset(260, 300)
+	panel.Position = UDim2.new(0.5, -130, 0.5, -150)
+	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	panel.BackgroundTransparency = 0.15
+	panel.BorderSizePixel = 0
+	panel.Visible = false
+	panel.Parent = hud
+
+	local panelCorner = Instance.new("UICorner")
+	panelCorner.CornerRadius = UDim.new(0, 12)
+	panelCorner.Parent = panel
+
+	local panelStroke = Instance.new("UIStroke")
+	panelStroke.Color = Color3.fromRGB(210, 180, 120)
+	panelStroke.Transparency = 0.5
+	panelStroke.Thickness = 1
+	panelStroke.Parent = panel
+
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, 0, 0, 24)
+	title.Position = UDim2.fromOffset(0, 6)
+	title.BackgroundTransparency = 1
+	title.Text = "LOOT BAG"
+	title.TextColor3 = Color3.fromRGB(210, 180, 120)
+	title.TextSize = 13
+	title.Font = Enum.Font.GothamBold
+	title.Parent = panel
+
+	-- Close button
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "Close"
+	closeBtn.Size = UDim2.fromOffset(20, 20)
+	closeBtn.Position = UDim2.new(1, -24, 0, 6)
+	closeBtn.BackgroundColor3 = Color3.fromRGB(120, 35, 35)
+	closeBtn.BackgroundTransparency = 0.4
+	closeBtn.Text = "X"
+	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	closeBtn.TextSize = 11
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Parent = panel
+
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0, 4)
+	closeBtnCorner.Parent = closeBtn
+
+	-- Scrolling frame for items
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "ItemScroll"
+	scroll.Size = UDim2.new(1, -16, 1, -70)
+	scroll.Position = UDim2.fromOffset(8, 32)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 4
+	scroll.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 140)
+	scroll.CanvasSize = UDim2.fromOffset(0, 0)
+	scroll.Parent = panel
+
+	local grid = Instance.new("UIGridLayout")
+	grid.CellSize = UDim2.fromOffset(LOOT_SLOT_SIZE, LOOT_SLOT_SIZE)
+	grid.CellPadding = UDim2.fromOffset(LOOT_PADDING, LOOT_PADDING)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+	grid.Parent = scroll
+
+	-- Take All button
+	local takeAllBtn = Instance.new("TextButton")
+	takeAllBtn.Name = "TakeAll"
+	takeAllBtn.Size = UDim2.new(1, -16, 0, 26)
+	takeAllBtn.Position = UDim2.new(0, 8, 1, -32)
+	takeAllBtn.BackgroundColor3 = Color3.fromRGB(40, 65, 40)
+	takeAllBtn.BackgroundTransparency = 0.2
+	takeAllBtn.Text = "TAKE ALL"
+	takeAllBtn.TextColor3 = Color3.fromRGB(180, 220, 180)
+	takeAllBtn.TextSize = 11
+	takeAllBtn.Font = Enum.Font.GothamBold
+	takeAllBtn.BorderSizePixel = 0
+	takeAllBtn.Parent = panel
+
+	local takeAllCorner = Instance.new("UICorner")
+	takeAllCorner.CornerRadius = UDim.new(0, 6)
+	takeAllCorner.Parent = takeAllBtn
+
+	-- ObjectValue for bag reference (used by InventoryController drag system)
+	local bagRef = Instance.new("ObjectValue")
+	bagRef.Name = "ActiveBag"
+	bagRef.Parent = panel
+
+	-- Handlers
+	closeBtn.MouseButton1Click:Connect(function()
+		closeLootBagPanel()
+	end)
+
+	takeAllBtn.MouseButton1Click:Connect(function()
+		if not activeLootBag or not activeLootBag.Parent or not lootBagContents then return end
+		for _, entry in ipairs(lootBagContents) do
+			takeLootBagItemRemote:FireServer(activeLootBag, entry.itemId, entry.qty)
+		end
+	end)
+
+	lootBagPanel = panel
+end
+
+local function openLootBagPanel(bagModel: Model)
+	if activeLootBag == bagModel and lootBagPanel and lootBagPanel.Visible then return end
+
+	buildLootBagPanel()
+	activeLootBag = bagModel
+	lootBagContents = nil
+	local ref = lootBagPanel:FindFirstChild("ActiveBag")
+	if ref then (ref :: ObjectValue).Value = bagModel end
+	lootBagPanel.Visible = true
+end
+
+function closeLootBagPanel()
+	if lootBagPanel then
+		lootBagPanel.Visible = false
+		local ref = lootBagPanel:FindFirstChild("ActiveBag")
+		if ref then (ref :: ObjectValue).Value = nil end
+	end
+	activeLootBag = nil
+	lootBagContents = nil
+end
+
+-- Listen for server state updates
+lootBagStateRemote.OnClientEvent:Connect(function(bagModel, data)
+	if bagModel ~= activeLootBag then
+		-- Server opened a bag for us (from ProximityPrompt trigger)
+		if data ~= nil then
+			openLootBagPanel(bagModel)
+			lootBagContents = data
+			refreshLootBagUI()
+		end
+		return
+	end
+
+	if data == nil then
+		closeLootBagPanel()
+		return
+	end
+
+	lootBagContents = data
+	refreshLootBagUI()
+end)
+
+-- Close panel if player walks too far from bag
+local LOOT_RANGE_CHECK_INTERVAL = 0.5
+local lootRangeCheckTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+	if not activeLootBag or not lootBagPanel or not lootBagPanel.Visible then return end
+
+	lootRangeCheckTimer = lootRangeCheckTimer + dt
+	if lootRangeCheckTimer < LOOT_RANGE_CHECK_INTERVAL then return end
+	lootRangeCheckTimer = 0
+
+	local bagPart = activeLootBag.PrimaryPart or activeLootBag:FindFirstChildWhichIsA("BasePart")
+	if not bagPart or not activeLootBag.Parent then
+		closeLootBagPanel()
+		return
+	end
+
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local closeRange = (Config.LootBag and Config.LootBag.UICloseRange) or 12
+	if (root.Position - bagPart.Position).Magnitude > closeRange then
+		closeLootBagPanel()
+	end
+end)
+
+-- Hook ProximityPrompts on loot bags
+local function hookLootBagPrompt(inst: ProximityPrompt)
+	local parent = inst.Parent
+	local model = parent and parent.Parent
+	if not model then
+		model = parent and parent:FindFirstAncestorWhichIsA("Model")
+	end
+	if model and model:IsA("Model") and model:GetAttribute("_isLootBag") then
+		inst.Triggered:Connect(function(triggerPlayer)
+			if triggerPlayer == player then
+				openLootBagPanel(model)
+			end
+		end)
+	end
+end
+
+Workspace.DescendantAdded:Connect(function(inst)
+	if inst:IsA("ProximityPrompt") then
+		hookLootBagPrompt(inst)
+	end
+end)
+
+for _, desc in ipairs(Workspace:GetDescendants()) do
+	if desc:IsA("ProximityPrompt") then
+		hookLootBagPrompt(desc)
+	end
+end
+
+-- Close panels on Escape
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.KeyCode == Enum.KeyCode.Escape then
-		if cookingPanel and cookingPanel.Visible then
+		if lootBagPanel and lootBagPanel.Visible then
+			closeLootBagPanel()
+		elseif cookingPanel and cookingPanel.Visible then
 			closeCookingPanel()
 		end
 	end

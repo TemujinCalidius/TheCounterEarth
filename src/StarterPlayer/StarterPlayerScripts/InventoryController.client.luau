@@ -39,6 +39,7 @@ local dropItemRemote        = remotes:WaitForChild("DropItem")           :: Remo
 local pinToSpecificSlotRemote = remotes:WaitForChild("PinToSpecificSlot") :: RemoteEvent
 local campfireAddRemote     = remotes:WaitForChild("CampfireAddItem")    :: RemoteEvent
 local campfireTakeRemote    = remotes:WaitForChild("CampfireTakeItem")   :: RemoteEvent
+local takeLootBagItemRemote = remotes:WaitForChild("TakeLootBagItem")    :: RemoteEvent
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -823,12 +824,18 @@ local dragStartPos    = Vector2.new(0, 0)
 local dragGhost: Frame? = nil
 local dragFromCookingOutput    = false
 local dragCookingOutputItemId  = ""
+local dragFromLootBag          = false
+local dragLootBagItemId        = ""
+local dragLootBagQty           = 0
 
 local function cleanupDrag()
 	isDragging  = false
 	dragFromSlot = 0
 	dragFromCookingOutput = false
 	dragCookingOutputItemId = ""
+	dragFromLootBag = false
+	dragLootBagItemId = ""
+	dragLootBagQty = 0
 	if dragGhost then
 		dragGhost:Destroy()
 		dragGhost = nil
@@ -880,6 +887,19 @@ end
 UserInputService.InputChanged:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
 
+	-- Loot bag drag
+	if dragFromLootBag then
+		local pos = UserInputService:GetMouseLocation()
+		if not isDragging and (pos - dragStartPos).Magnitude > DRAG_THRESHOLD then
+			isDragging = true
+			dragGhost = createDragGhost(dragLootBagItemId, pos)
+		end
+		if isDragging and dragGhost then
+			dragGhost.Position = UDim2.new(0, pos.X - 28, 0, pos.Y - 28)
+		end
+		return
+	end
+
 	-- Cooking output drag
 	if dragFromCookingOutput then
 		local pos = UserInputService:GetMouseLocation()
@@ -915,6 +935,24 @@ end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+	-- Loot bag drag drop
+	if dragFromLootBag then
+		local wasDragging = isDragging
+		local itemId = dragLootBagItemId
+		local qty = dragLootBagQty
+		cleanupDrag()
+		if wasDragging then
+			local hudGui = player.PlayerGui:FindFirstChild("GameplayHud")
+			local bagPanel = hudGui and hudGui:FindFirstChild("LootBagPanel")
+			local bagRef = bagPanel and bagPanel:FindFirstChild("ActiveBag")
+			local bagModel = bagRef and (bagRef :: ObjectValue).Value
+			if bagModel and itemId ~= "" and qty > 0 then
+				takeLootBagItemRemote:FireServer(bagModel, itemId, qty)
+			end
+		end
+		return
+	end
 
 	-- Cooking output drag drop
 	if dragFromCookingOutput then
@@ -1493,6 +1531,57 @@ end
 task.spawn(function()
 	while not outputSlotWired do
 		wireOutputSlotDrag()
+		task.wait(1)
+	end
+end)
+
+-- ── Loot bag slot drag support ──────────────────────────────────────────
+-- Wire drag-start on loot bag item slots. The LootBagPanel is built on demand,
+-- so we watch for new TextButton children inside its ItemScroll.
+
+local lootBagPanelWired = false
+
+local function wireLootBagSlotDrag(btn: TextButton)
+	btn.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		local itemId = btn:GetAttribute("_LootItemId")
+		local qty = btn:GetAttribute("_LootQty")
+		if not itemId or itemId == "" then return end
+		dragFromLootBag = true
+		dragLootBagItemId = itemId
+		dragLootBagQty = tonumber(qty) or 0
+		dragFromSlot = 0
+		dragStartPos = UserInputService:GetMouseLocation()
+	end)
+end
+
+local function wireLootBagPanel()
+	if lootBagPanelWired then return end
+	local hudGui = player.PlayerGui:FindFirstChild("GameplayHud")
+	local bagPanel = hudGui and hudGui:FindFirstChild("LootBagPanel")
+	local scroll = bagPanel and bagPanel:FindFirstChild("ItemScroll")
+	if not scroll then return end
+
+	lootBagPanelWired = true
+
+	-- Wire existing slots
+	for _, child in ipairs(scroll:GetChildren()) do
+		if child:IsA("TextButton") then
+			wireLootBagSlotDrag(child)
+		end
+	end
+
+	-- Wire future slots (panel rebuilds on each state update)
+	scroll.ChildAdded:Connect(function(child)
+		if child:IsA("TextButton") then
+			wireLootBagSlotDrag(child)
+		end
+	end)
+end
+
+task.spawn(function()
+	while not lootBagPanelWired do
+		wireLootBagPanel()
 		task.wait(1)
 	end
 end)

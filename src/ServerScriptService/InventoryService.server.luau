@@ -52,6 +52,72 @@ local swapSlotsRemote         = makeRemote("SwapSlots")
 local swapHotbarSlotsRemote   = makeRemote("SwapHotbarSlots")
 local dropItemRemote          = makeRemote("DropItem")
 local placeItemRemote         = makeRemote("PlaceItem")
+local openLootBagRemote       = makeRemote("OpenLootBag")
+local lootBagStateRemote      = makeRemote("LootBagState")
+local takeLootBagItemRemote   = makeRemote("TakeLootBagItem")
+
+-- ── Loot bag viewer tracking ────────────────────────────────────────────
+local lootBagViewers: { [Model]: { Player } } = {}
+
+local LOOT_BAG_RANGE = 10
+
+local function serializeBagContents(bag: Model): { { itemId: string, qty: number, displayName: string } }
+	local result = {}
+	for _, child in ipairs(bag:GetChildren()) do
+		if child:IsA("IntValue") and child.Value > 0 then
+			local def = ItemRegistry.get(child.Name)
+			table.insert(result, {
+				itemId = child.Name,
+				qty = child.Value,
+				displayName = def and def.displayName or child.Name,
+			})
+		end
+	end
+	return result
+end
+
+local function isBagInRange(plr: Player, bag: Model): boolean
+	local char = plr.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return false end
+	local bagPart = bag.PrimaryPart or bag:FindFirstChildWhichIsA("BasePart")
+	if not bagPart then return false end
+	return (root.Position - bagPart.Position).Magnitude <= LOOT_BAG_RANGE
+end
+
+local function addBagViewer(bag: Model, plr: Player)
+	if not lootBagViewers[bag] then
+		lootBagViewers[bag] = {}
+	end
+	for _, p in ipairs(lootBagViewers[bag]) do
+		if p == plr then return end
+	end
+	table.insert(lootBagViewers[bag], plr)
+end
+
+local function broadcastBagState(bag: Model)
+	local viewers = lootBagViewers[bag]
+	if not viewers then return end
+	local data = serializeBagContents(bag)
+	for i = #viewers, 1, -1 do
+		local p = viewers[i]
+		if not p.Parent or not isBagInRange(p, bag) then
+			table.remove(viewers, i)
+		else
+			lootBagStateRemote:FireClient(p, bag, data)
+		end
+	end
+end
+
+local function notifyBagDestroyed(bag: Model)
+	local viewers = lootBagViewers[bag]
+	if viewers then
+		for _, p in ipairs(viewers) do
+			lootBagStateRemote:FireClient(p, bag, nil)
+		end
+	end
+	lootBagViewers[bag] = nil
+end
 
 -- ── Publish ghost-ready templates to ReplicatedStorage for client preview ──
 
@@ -452,24 +518,15 @@ local function createLootBag(player: Player, items: { { itemId: string, qty: num
 
 	prompt.Triggered:Connect(function(lootingPlayer)
 		if not bag.Parent then return end
-		local allAdded = true
-		for _, child in ipairs(bag:GetChildren()) do
-			if child:IsA("IntValue") then
-				local id = sanitizeItemId(child.Name)
-				if id ~= "" then
-					if addQty(lootingPlayer, id, child.Value) then
-						child:Destroy()
-					else
-						allAdded = false
-					end
-				end
-			end
-		end
-		if allAdded then bag:Destroy() end
+		addBagViewer(bag, lootingPlayer)
+		lootBagStateRemote:FireClient(lootingPlayer, bag, serializeBagContents(bag))
 	end)
 
 	task.delay(lifetime, function()
-		if bag and bag.Parent then bag:Destroy() end
+		if bag and bag.Parent then
+			notifyBagDestroyed(bag)
+			bag:Destroy()
+		end
 	end)
 end
 
@@ -779,24 +836,15 @@ local function createDeathLootBag(player: Player, items: { { itemId: string, qty
 
 	prompt.Triggered:Connect(function(lootingPlayer)
 		if not bag.Parent then return end
-		local allAdded = true
-		for _, child in ipairs(bag:GetChildren()) do
-			if child:IsA("IntValue") then
-				local id = sanitizeItemId(child.Name)
-				if id ~= "" then
-					if addQty(lootingPlayer, id, child.Value) then
-						child:Destroy()
-					else
-						allAdded = false
-					end
-				end
-			end
-		end
-		if allAdded then bag:Destroy() end
+		addBagViewer(bag, lootingPlayer)
+		lootBagStateRemote:FireClient(lootingPlayer, bag, serializeBagContents(bag))
 	end)
 
 	task.delay(lifetime, function()
-		if bag and bag.Parent then bag:Destroy() end
+		if bag and bag.Parent then
+			notifyBagDestroyed(bag)
+			bag:Destroy()
+		end
 	end)
 
 	-- Fire beacon to the owner client
@@ -1372,7 +1420,66 @@ Players.PlayerAdded:Connect(initPlayer)
 Players.PlayerRemoving:Connect(function(player)
 	lastEatTime[player] = nil
 	lastPlaceTime[player] = nil
+	-- Clean up loot bag viewer lists
+	for _, viewers in pairs(lootBagViewers) do
+		for i = #viewers, 1, -1 do
+			if viewers[i] == player then
+				table.remove(viewers, i)
+			end
+		end
+	end
 end)
 for _, player in ipairs(Players:GetPlayers()) do
 	initPlayer(player)
 end
+
+-- ── Loot bag remotes ────────────────────────────────────────────────────
+
+openLootBagRemote.OnServerEvent:Connect(function(player, bag)
+	if not bag or not (typeof(bag) == "Instance" and bag:IsA("Model")) then return end
+	if not bag:GetAttribute("_isLootBag") then return end
+	if not bag.Parent then return end
+	if not isBagInRange(player, bag) then return end
+	addBagViewer(bag, player)
+	lootBagStateRemote:FireClient(player, bag, serializeBagContents(bag))
+end)
+
+takeLootBagItemRemote.OnServerEvent:Connect(function(player, bag, rawItemId, rawQty)
+	if not bag or not (typeof(bag) == "Instance" and bag:IsA("Model")) then return end
+	if not bag:GetAttribute("_isLootBag") then return end
+	if not bag.Parent then return end
+	local itemId = sanitizeItemId(rawItemId)
+	if itemId == "" then return end
+	local qty = math.floor(tonumber(rawQty) or 0)
+	if qty < 1 then return end
+	if not isBagInRange(player, bag) then return end
+
+	local child = bag:FindFirstChild(itemId)
+	if not child or not child:IsA("IntValue") then return end
+
+	local available = child.Value
+	local take = math.min(qty, available)
+	if take < 1 then return end
+
+	if not addQty(player, itemId, take) then return end
+
+	local remaining = available - take
+	if remaining <= 0 then
+		child:Destroy()
+	else
+		child.Value = remaining
+	end
+
+	-- Check if bag is empty
+	local hasItems = false
+	for _, c in ipairs(bag:GetChildren()) do
+		if c:IsA("IntValue") then hasItems = true; break end
+	end
+
+	if not hasItems then
+		notifyBagDestroyed(bag)
+		bag:Destroy()
+	else
+		broadcastBagState(bag)
+	end
+end)

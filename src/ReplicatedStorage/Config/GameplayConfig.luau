@@ -54,6 +54,11 @@ return {
 		InteractRange = 6,             -- studs to trigger lie-down prompt
 	},
 
+	LootBag = {
+		InteractRange = 8,         -- studs: ProximityPrompt activation distance
+		UICloseRange = 12,         -- studs: auto-close UI if player walks away
+	},
+
 	Inventory = {
 		-- Base carry weight with no backpack equipped (just pockets), in kg.
 		BasePocketWeight = 5,
