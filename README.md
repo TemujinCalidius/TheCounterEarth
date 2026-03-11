@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/raw/screenshots/Alpha%20Logo.png" alt="The Counter Earth" width="600">
+</p>
+
 # The Counter Earth
 
 A survival/roleplay framework for Roblox, built as a complete foundation that world builders can extend with their own maps, stories, and gameplay.
