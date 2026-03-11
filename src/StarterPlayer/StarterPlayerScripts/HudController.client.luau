@@ -1899,7 +1899,9 @@ local function buildLootBagPanel()
 	local panel = Instance.new("Frame")
 	panel.Name = "LootBagPanel"
 	panel.Size = UDim2.fromOffset(260, 300)
-	panel.Position = UDim2.new(0.5, -130, 0.5, -150)
+	-- Sit to the left of the centered inventory panel (540px wide, centered)
+	-- so both panels are visible side-by-side for drag-to-loot
+	panel.Position = UDim2.new(0.5, -270 - 260 - 8, 0.5, -150)
 	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 	panel.BackgroundTransparency = 0.15
 	panel.BorderSizePixel = 0
