@@ -301,9 +301,10 @@ rootStroke.Color = Color3.fromRGB(210, 220, 245)
 rootStroke.Parent = root
 
 -- Expand/collapse chevron hint (bottom-right of main panel)
-local chevron = Instance.new("TextLabel")
+local chevron = Instance.new("TextButton")
 chevron.Name = "Chevron"
 chevron.BackgroundTransparency = 1
+chevron.AutoButtonColor = false
 chevron.Size = UDim2.fromOffset(20, 14)
 chevron.Position = UDim2.fromOffset(326, 108)
 chevron.Font = Enum.Font.GothamBold
@@ -422,7 +423,7 @@ local poisonBadge = createStatusBadge(statusRow, 96,  "Poisoned", Color3.fromRGB
 -- ---------------------------------------------------------------------------
 
 local panelOpen = false
-local isHovered = false
+local isPinned = false
 local activeTween: Tween? = nil
 
 local function setPanelOpen(open: boolean)
@@ -444,22 +445,9 @@ local function setPanelOpen(open: boolean)
 	activeTween:Play()
 end
 
-root.MouseEnter:Connect(function()
-	isHovered = true
-	setPanelOpen(true)
-end)
-
-root.MouseLeave:Connect(function()
-	isHovered = false
-	-- let RenderStepped decide based on warning state
-end)
-
-expandedPanel.MouseEnter:Connect(function()
-	isHovered = true
-end)
-
-expandedPanel.MouseLeave:Connect(function()
-	isHovered = false
+chevron.MouseButton1Click:Connect(function()
+	isPinned = not isPinned
+	setPanelOpen(isPinned)
 end)
 
 -- ---------------------------------------------------------------------------
@@ -1185,7 +1173,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		badgePulseTime = 0
 	end
 
-	-- Auto-expand logic
+	-- Auto-expand logic (warnings force-open, click-pin keeps open, otherwise close)
 
 	local isWarning = hungerRatio  < WARN
 		or thirstRatio  < WARN
@@ -1195,9 +1183,9 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		or isBleeding
 		or isPoisoned
 
-	if isWarning then
+	if isWarning or isPinned then
 		setPanelOpen(true)
-	elseif not isHovered and panelOpen then
+	else
 		setPanelOpen(false)
 	end
 
@@ -1288,6 +1276,14 @@ local function refreshCookingUI()
 
 	updateSlotVisual(cookingInputBtn :: TextButton, cookingInputIcon :: ImageLabel, cookingInputQty :: TextLabel, cookingState.input)
 	updateSlotVisual(cookingOutputBtn :: TextButton, cookingOutputIcon :: ImageLabel, cookingOutputQty :: TextLabel, cookingState.output)
+
+	-- Expose output item ID for InventoryController drag system
+	local outBtn = cookingOutputBtn :: TextButton
+	if cookingState.output and cookingState.output.qty > 0 then
+		outBtn:SetAttribute("_ItemId", cookingState.output.itemId)
+	else
+		outBtn:SetAttribute("_ItemId", "")
+	end
 
 	-- Progress bar
 	local bar = cookingProgressBar :: Frame

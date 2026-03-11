@@ -38,6 +38,7 @@ local swapSlotsRemote       = remotes:WaitForChild("SwapSlots")          :: Remo
 local dropItemRemote        = remotes:WaitForChild("DropItem")           :: RemoteEvent
 local pinToSpecificSlotRemote = remotes:WaitForChild("PinToSpecificSlot") :: RemoteEvent
 local campfireAddRemote     = remotes:WaitForChild("CampfireAddItem")    :: RemoteEvent
+local campfireTakeRemote    = remotes:WaitForChild("CampfireTakeItem")   :: RemoteEvent
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -820,10 +821,14 @@ local isDragging      = false
 local dragFromSlot    = 0
 local dragStartPos    = Vector2.new(0, 0)
 local dragGhost: Frame? = nil
+local dragFromCookingOutput    = false
+local dragCookingOutputItemId  = ""
 
 local function cleanupDrag()
 	isDragging  = false
 	dragFromSlot = 0
+	dragFromCookingOutput = false
+	dragCookingOutputItemId = ""
 	if dragGhost then
 		dragGhost:Destroy()
 		dragGhost = nil
@@ -874,6 +879,20 @@ end
 -- Global drag tracking: move ghost, detect drop on release.
 UserInputService.InputChanged:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+
+	-- Cooking output drag
+	if dragFromCookingOutput then
+		local pos = UserInputService:GetMouseLocation()
+		if not isDragging and (pos - dragStartPos).Magnitude > DRAG_THRESHOLD then
+			isDragging = true
+			dragGhost = createDragGhost(dragCookingOutputItemId, pos)
+		end
+		if isDragging and dragGhost then
+			dragGhost.Position = UDim2.new(0, pos.X - 28, 0, pos.Y - 28)
+		end
+		return
+	end
+
 	if dragFromSlot == 0 then return end
 
 	local pos = UserInputService:GetMouseLocation()
@@ -896,6 +915,28 @@ end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+	-- Cooking output drag drop
+	if dragFromCookingOutput then
+		local wasDragging = isDragging
+		cleanupDrag()
+		if wasDragging then
+			local hud = player.PlayerGui:FindFirstChild("GameplayHud")
+			local cookPanel = hud and hud:FindFirstChild("CookingPanel")
+			local campfireRef = cookPanel and cookPanel:FindFirstChild("ActiveCampfire")
+			local campfireModel = campfireRef and (campfireRef :: ObjectValue).Value
+			local outputSlot = cookPanel and cookPanel:FindFirstChild("OutputSlot")
+			local qtyLabel = outputSlot and outputSlot:FindFirstChild("Qty")
+			if campfireModel and qtyLabel then
+				local qty = tonumber((qtyLabel :: TextLabel).Text) or 0
+				if qty > 0 then
+					campfireTakeRemote:FireServer(campfireModel, "output", qty)
+				end
+			end
+		end
+		return
+	end
+
 	if dragFromSlot == 0 then return end
 
 	local fromSlot          = dragFromSlot
@@ -1422,5 +1463,36 @@ player.AttributeChanged:Connect(function(attrName: string)
 		or attrName:sub(1, 10) == "EquipSlot_"
 	then
 		refreshCharacter()
+	end
+end)
+
+-- ── Cooking output slot drag support ─────────────────────────────────────
+-- Wire up drag-start on the OutputSlot once the CookingPanel is built.
+
+local outputSlotWired = false
+
+local function wireOutputSlotDrag()
+	if outputSlotWired then return end
+	local hud = player.PlayerGui:FindFirstChild("GameplayHud")
+	local cookPanel = hud and hud:FindFirstChild("CookingPanel")
+	local outputSlot = cookPanel and cookPanel:FindFirstChild("OutputSlot")
+	if not outputSlot then return end
+
+	outputSlotWired = true
+	outputSlot.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		local itemId = outputSlot:GetAttribute("_ItemId")
+		if not itemId or itemId == "" then return end
+		dragFromCookingOutput = true
+		dragCookingOutputItemId = itemId
+		dragFromSlot = 0
+		dragStartPos = UserInputService:GetMouseLocation()
+	end)
+end
+
+task.spawn(function()
+	while not outputSlotWired do
+		wireOutputSlotDrag()
+		task.wait(1)
 	end
 end)

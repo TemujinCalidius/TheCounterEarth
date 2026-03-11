@@ -1261,6 +1261,45 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 			-- Hide prompt while occupied
 			bedrollPrompt.Enabled = false
 		end)
+
+		-- "Pick Up" prompt (owner only, F key to avoid conflict with E "Lie Down")
+		local pickupPrompt = Instance.new("ProximityPrompt")
+		pickupPrompt.ActionText = "Pick Up"
+		pickupPrompt.ObjectText = "Bedroll"
+		pickupPrompt.MaxActivationDistance = bedrollRange
+		pickupPrompt.HoldDuration = 0.5
+		pickupPrompt.RequiresLineOfSight = false
+		pickupPrompt.KeyboardKeyCode = Enum.KeyCode.F
+		pickupPrompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
+
+		pickupPrompt.Triggered:Connect(function(trigPlayer)
+			-- Owner only
+			if trigPlayer.UserId ~= placed:GetAttribute("_PlacedBy") then return end
+
+			-- Kick occupant off if someone is lying on it
+			local occupantId = placed:GetAttribute("_OccupiedBy")
+			if occupantId then
+				for _, p in Players:GetPlayers() do
+					if p.UserId == occupantId then
+						p:SetAttribute("IsResting", false)
+						p:SetAttribute("LyingOnBedroll", false)
+						local oChar = p.Character
+						local oHum = oChar and oChar:FindFirstChildOfClass("Humanoid")
+						if oHum then
+							oHum.WalkSpeed = GameplayConfig.Movement.WalkSpeed
+							oHum.JumpPower = GameplayConfig.Movement.JumpPower
+						end
+						break
+					end
+				end
+				placed:SetAttribute("_OccupiedBy", nil)
+			end
+
+			-- Return to inventory (fails if full — bedroll stays in world)
+			if addQty(trigPlayer, "bedroll", 1) then
+				placed:Destroy()
+			end
+		end)
 	end
 
 	placed:PivotTo(rawCFrame)
