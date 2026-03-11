@@ -472,11 +472,45 @@ end
 
 -- ── Loot bag ──────────────────────────────────────────────────────────────
 
+local LOOT_BAG_MERGE_RADIUS = 4 -- studs: merge into existing bag if within this range
+
+local function findNearbyLootBag(position: Vector3, excludeDeathBags: boolean): Model?
+	for _, obj in ipairs(Workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("_isLootBag") then
+			if excludeDeathBags and obj:GetAttribute("_isDeathBag") then continue end
+			local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+			if part and (part.Position - position).Magnitude <= LOOT_BAG_MERGE_RADIUS then
+				return obj
+			end
+		end
+	end
+	return nil
+end
+
 local function createLootBag(player: Player, items: { { itemId: string, qty: number } })
 	local character = player.Character
 	local rootPart  = character and character:FindFirstChild("HumanoidRootPart")
 	local origin    = rootPart and rootPart.CFrame or CFrame.new(0, 5, 0)
 	local dropCFrame = origin * CFrame.new(0, -2.5, -3.5)
+
+	-- Try to merge into an existing nearby non-death loot bag
+	local existing = findNearbyLootBag(dropCFrame.Position, true)
+	if existing then
+		for _, entry in ipairs(items) do
+			local child = existing:FindFirstChild(entry.itemId)
+			if child and child:IsA("IntValue") then
+				child.Value = child.Value + entry.qty
+			else
+				local v = Instance.new("IntValue")
+				v.Name   = entry.itemId
+				v.Value  = entry.qty
+				v.Parent = existing
+			end
+		end
+		-- Update any viewers currently looking at this bag
+		broadcastBagState(existing)
+		return
+	end
 
 	local lifetime = (GameplayConfig.Inventory and GameplayConfig.Inventory.DeathBagLifetimeSeconds) or 300
 
