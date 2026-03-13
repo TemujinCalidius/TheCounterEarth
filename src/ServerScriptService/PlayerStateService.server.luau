@@ -1292,7 +1292,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		end
 
 		local moving = humanoid.MoveDirection.Magnitude > 0.05
-		local isGrounded = humanoid.FloorMaterial ~= Enum.Material.Air
+		local isSwimming = humanoid:GetState() == Enum.HumanoidStateType.Swimming
 		local canSpendEnergy = state.energy > 0
 		local shouldSprint = state.sprintRequested and moving and canSpendEnergy
 
@@ -1303,7 +1303,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		if shouldSprint then
 			setEnergy(player, state, state.energy - Config.Energy.SprintDrainPerSecond * deltaTime)
 			state.lastEnergyUseTime = now
-		elseif isGrounded and not moving
+		elseif not isSwimming and not moving
 			and now - state.lastEnergyUseTime >= Config.Energy.RegenDelaySeconds
 			and not thirstEmpty
 		then

@@ -1486,7 +1486,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 			-- Teleport player onto the bedroll
 			local bedrollPart = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
 			if bedrollPart then
-				rootPart.CFrame = bedrollPart.CFrame * CFrame.Angles(0, math.rad(90), 0) + Vector3.new(0, 1, 0)
+				rootPart.CFrame = bedrollPart.CFrame + Vector3.new(0, 1, 0)
 			end
 
 			-- Disable movement

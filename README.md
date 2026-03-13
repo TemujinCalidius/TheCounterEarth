@@ -25,6 +25,7 @@ The Counter Earth ships as a ready-to-run Roblox experience with core survival m
 - **Bedroll & Respawn** — placeable bedroll sets respawn point, relog position persistence
 - **Food Spoilage** — per-item expiry timestamps, items spoil individually over time
 - **Loot Bags** — items drop as lootable bags on death or manual drop, with countdown timers and owner beacons
+- **Custom Avatar** — single-mesh custom character support with HipHeight adjustment and custom animations (idle, walk, run, sit, sleep, harvest)
 - **HUD** — health/energy/survival bars, hotbar with durability overlays, vignette and audio feedback
 - **Persistence** — full DataStore save/load for all player data (credits, stats, inventory, hotbar, durability, expiry, position)
 - **Tool Pickup** — ProximityPrompt-based world item pickup with auto-hotbar assignment

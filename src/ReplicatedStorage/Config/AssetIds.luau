@@ -22,9 +22,9 @@ return {
 	},
 	Animations = {
 		Eating = "rbxassetid://113331921997993",
-		Sitting = "rbxassetid://101839416066342",
-		Sleeping = "rbxassetid://80878583369776",
-		HarvestKnife = "rbxassetid://123827838080623",
+		Sitting = "rbxassetid://138225082049466",
+		Sleeping = "rbxassetid://132999422106643",
+		HarvestKnife = "rbxassetid://112989240149329",
 		HarvestPickaxe = "",  -- placeholder for mining
 		HarvestAxe = "",      -- placeholder for chopping
 		Crafting = "rbxassetid://120762235566284",

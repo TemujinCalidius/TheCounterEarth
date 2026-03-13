@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.11.0] - 2026-03-13
+
+### Added
+- **Custom avatar support** — `AvatarSetup.client.luau` in StarterCharacterScripts adjusts HipHeight for single-mesh custom avatars
+- **StarterCharacterScripts Rojo protection** — `$ignoreUnknownInstances: true` in `default.project.json` prevents Rojo from deleting Studio-placed assets (Animate script, animation folders)
+
+### Changed
+- **Custom animation IDs** — updated idle, walk, run, sit, sleep, and harvest knife animations in AssetIds to use custom avatar animations
+- **Bedroll sleep orientation** — removed 90-degree Y rotation so character lies along bedroll length instead of width
+- **Energy regen ground check** — replaced `FloorMaterial` ground detection with `HumanoidStateType.Swimming` check to fix false-negative grounding with custom avatars
+
+### Known Issues
+- Single-mesh custom avatars don't swim properly in terrain water — engine buoyancy doesn't work with single MeshPart characters (see [#19](https://github.com/TemujinCalidius/TheCounterEarth/issues/19))
+
+---
+
 ## [0.10.0] - 2026-03-11
 
 ### Added
