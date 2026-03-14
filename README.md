@@ -27,6 +27,7 @@ The Counter Earth ships as a ready-to-run Roblox experience with core survival m
 - **Loot Bags** — items drop as lootable bags on death or manual drop, with countdown timers and owner beacons
 - **Custom Avatar** — single-mesh custom character support with HipHeight adjustment and custom animations (idle, walk, run, sit, sleep, harvest)
 - **HUD** — health/energy/survival bars, hotbar with durability overlays, vignette and audio feedback
+- **Mobile/Tablet Support** — full touch input support: tap-to-equip hotbar, drag-to-reorder slots, sprint toggle button, dedicated placement buttons (PLACE/R/X), screen-center ghost aiming, and touch-aware harvest/attack
 - **Persistence** — full DataStore save/load for all player data (credits, stats, inventory, hotbar, durability, expiry, position)
 - **Tool Pickup** — ProximityPrompt-based world item pickup with auto-hotbar assignment
 

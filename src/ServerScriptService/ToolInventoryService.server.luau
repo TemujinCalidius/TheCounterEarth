@@ -198,6 +198,12 @@ local function grantItemFromTemplate(player: Player, itemId: string): Tool?
 
 	local clone = template:Clone()
 	clone.Name = itemId
+
+	-- Apply grip from ItemRegistry (or default) so tools sit correctly in hand
+	local def = ItemRegistry.get(itemId)
+	local defaultGrip = CFrame.new(0.2, -0.05, 0.5) * CFrame.Angles(math.rad(0), math.rad(-70), math.rad(0))
+	clone.Grip = (def and def.gripCFrame) or defaultGrip
+
 	clone.Parent = backpack
 	return clone
 end

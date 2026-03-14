@@ -10,6 +10,19 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- Mobile / touch detection helpers
+local isMobile = UserInputService.TouchEnabled
+
+local function isClickOrTap(input)
+	return input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function isMoveInput(input)
+	return input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
 local Config        = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
 local AssetIds      = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local StatsConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
@@ -471,6 +484,7 @@ hotbarRoot.Size = UDim2.fromOffset((hotbarSlotCount * 58) + 14, 72)
 hotbarRoot.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 hotbarRoot.BackgroundTransparency = 0.2
 hotbarRoot.BorderSizePixel = 0
+hotbarRoot.Active = true  -- Sink touch input so it doesn't trigger Roblox's thumbstick
 hotbarRoot.Parent = hud
 createRoundedCorner(hotbarRoot, UDim.new(0, 12))
 
@@ -487,6 +501,7 @@ local hotbarDragSlot        = 0
 local hotbarDragStartPos    = Vector2.new(0, 0)
 local hotbarIsDragging      = false
 local hotbarDragGhost: Frame? = nil
+local hotbarDragOverlayFrame: Frame? = nil
 
 local function cleanupHotbarDrag()
 	hotbarDragSlot   = 0
@@ -494,6 +509,10 @@ local function cleanupHotbarDrag()
 	if hotbarDragGhost then
 		hotbarDragGhost:Destroy()
 		hotbarDragGhost = nil
+	end
+	if hotbarDragOverlayFrame then
+		hotbarDragOverlayFrame:Destroy()
+		hotbarDragOverlayFrame = nil
 	end
 end
 
@@ -650,11 +669,29 @@ for slot = 1, hotbarSlotCount do
 	durBarFill.Parent                = durBarBg
 	createRoundedCorner(durBarFill, UDim.new(0, 2))
 
-	-- Drag to reorder hotbar slots.
+	-- Drag to reorder hotbar slots + tap to equip.
 	slotFrame.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		if not isClickOrTap(input) then return end
 		hotbarDragSlot     = capturedSlot
 		hotbarDragStartPos = UserInputService:GetMouseLocation()
+	end)
+
+	-- Tap-to-equip on the slot. Drags are handled by the full-screen overlay
+	-- created in InputChanged, so we skip if dragging is active.
+	slotFrame.InputEnded:Connect(function(input)
+		if not isClickOrTap(input) then return end
+		if hotbarIsDragging then return end
+		if hotbarDragSlot ~= capturedSlot then return end
+		if hotbarDragSlot == 0 then return end
+		cleanupHotbarDrag()
+		hotbarEquipRemote:FireServer(capturedSlot)
+		local slotItem = player:GetAttribute(getSlotAttributeName(capturedSlot))
+		if type(slotItem) == "string" and slotItem ~= "" then
+			local slotDef = ItemRegistry.get(slotItem)
+			if slotDef and slotDef.category == "placeable" then
+				startPlacementEvent:Fire(slotItem)
+			end
+		end
 	end)
 
 	hotbarSlotUIs[slot] = {
@@ -997,7 +1034,11 @@ end
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if player:GetAttribute("IsPlacementMode") == true then return end
 
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if isClickOrTap(input) then
+		-- On mobile, don't attack when tapping UI elements (hotbar, inventory, etc.)
+		if input.UserInputType == Enum.UserInputType.Touch and gameProcessed then
+			return
+		end
 		tryAttackWithEquippedItem()
 		return
 	end
@@ -1034,11 +1075,79 @@ UserInputService.WindowFocusReleased:Connect(function()
 end)
 
 -- ---------------------------------------------------------------------------
+-- Mobile sprint toggle button
+-- ---------------------------------------------------------------------------
+
+if isMobile then
+	local sprintBtn = Instance.new("ImageButton")
+	sprintBtn.Name                   = "SprintToggle"
+	sprintBtn.Size                   = UDim2.new(0, 56, 0, 56)
+	sprintBtn.Position               = UDim2.new(1, -160, 1, -200)
+	sprintBtn.AnchorPoint            = Vector2.new(1, 1)
+	sprintBtn.BackgroundColor3       = Color3.fromRGB(42, 48, 66)
+	sprintBtn.BackgroundTransparency = 0.3
+	sprintBtn.Image                  = ""
+	sprintBtn.ZIndex                 = 20
+	sprintBtn.Parent                 = hud
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 10)
+	btnCorner.Parent = sprintBtn
+
+	local btnStroke = Instance.new("UIStroke")
+	btnStroke.Color     = Color3.fromRGB(70, 130, 200)
+	btnStroke.Thickness = 1.5
+	btnStroke.Parent    = sprintBtn
+
+	local btnLabel = Instance.new("TextLabel")
+	btnLabel.Size                   = UDim2.new(1, 0, 1, 0)
+	btnLabel.BackgroundTransparency = 1
+	btnLabel.Text                   = "RUN"
+	btnLabel.Font                   = Enum.Font.GothamBold
+	btnLabel.TextSize               = 14
+	btnLabel.TextColor3             = Color3.fromRGB(200, 210, 230)
+	btnLabel.ZIndex                 = 21
+	btnLabel.Parent                 = sprintBtn
+
+	local mobileSprintActive = false
+
+	sprintBtn.Activated:Connect(function()
+		mobileSprintActive = not mobileSprintActive
+		setSprint(mobileSprintActive)
+		sprintBtn.BackgroundColor3 = mobileSprintActive
+			and Color3.fromRGB(70, 130, 200)
+			or Color3.fromRGB(42, 48, 66)
+		btnLabel.Text = mobileSprintActive and "WALK" or "RUN"
+	end)
+
+	-- Auto-disable sprint when player stops moving (thumbstick released)
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hum = char:WaitForChild("Humanoid")
+
+	local function watchHumanoid(humanoid: Humanoid)
+		humanoid.Running:Connect(function(speed)
+			if mobileSprintActive and speed < 0.1 then
+				mobileSprintActive = false
+				setSprint(false)
+				sprintBtn.BackgroundColor3 = Color3.fromRGB(42, 48, 66)
+				btnLabel.Text = "RUN"
+			end
+		end)
+	end
+
+	watchHumanoid(hum)
+	player.CharacterAdded:Connect(function(newChar)
+		local newHum = newChar:WaitForChild("Humanoid")
+		watchHumanoid(newHum)
+	end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Hotbar drag-to-reorder input handlers
 -- ---------------------------------------------------------------------------
 
 UserInputService.InputChanged:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+	if not isMoveInput(input) then return end
 	if hotbarDragSlot == 0 then return end
 
 	local pos = UserInputService:GetMouseLocation()
@@ -1086,6 +1195,41 @@ UserInputService.InputChanged:Connect(function(input)
 				lbl.Parent             = ghost
 			end
 			hotbarDragGhost = ghost
+
+			-- Full-screen overlay to capture release (InputEnded on a GuiObject
+			-- fires when cursor/finger leaves bounds, but this overlay covers the
+			-- whole screen so it only fires on actual release).
+			local overlay = Instance.new("Frame")
+			overlay.Name                   = "HotbarDragCatcher"
+			overlay.Size                   = UDim2.new(1, 0, 1, 0)
+			overlay.BackgroundTransparency = 1
+			overlay.ZIndex                 = 99
+			overlay.Active                 = true
+			overlay.Parent                 = hudDragOverlay
+			hotbarDragOverlayFrame         = overlay
+
+			overlay.InputEnded:Connect(function(endInput)
+				if not isClickOrTap(endInput) then return end
+				if hotbarDragSlot == 0 then return end
+				local fromSlot = hotbarDragSlot
+				cleanupHotbarDrag()
+				local dropPos = Vector2.new(endInput.Position.X, endInput.Position.Y)
+				for slotNum = 1, hotbarSlotCount do
+					local ui = hotbarSlotUIs[slotNum]
+					if ui then
+						local ap = ui.frame.AbsolutePosition
+						local as = ui.frame.AbsoluteSize
+						if dropPos.X >= ap.X and dropPos.X <= ap.X + as.X
+							and dropPos.Y >= ap.Y and dropPos.Y <= ap.Y + as.Y
+						then
+							if slotNum ~= fromSlot then
+								swapHotbarSlotsRemote:FireServer(fromSlot, slotNum)
+							end
+							break
+						end
+					end
+				end
+			end)
 		else
 			hotbarDragSlot = 0
 		end
@@ -1098,29 +1242,19 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+	if not isClickOrTap(input) then return end
 	if hotbarDragSlot == 0 then return end
+	if hotbarIsDragging then return end -- overlay handles drag-drop
 
-	local fromSlot    = hotbarDragSlot
-	local wasDragging = hotbarIsDragging
+	-- Tap fallback
+	local fromSlot = hotbarDragSlot
 	cleanupHotbarDrag()
-
-	if not wasDragging then return end
-
-	local pos = Vector2.new(input.Position.X, input.Position.Y)
-	for slotNum = 1, hotbarSlotCount do
-		local ui = hotbarSlotUIs[slotNum]
-		if ui then
-			local ap = ui.frame.AbsolutePosition
-			local as = ui.frame.AbsoluteSize
-			if pos.X >= ap.X and pos.X <= ap.X + as.X
-				and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
-			then
-				if slotNum ~= fromSlot then
-					swapHotbarSlotsRemote:FireServer(fromSlot, slotNum)
-				end
-				break
-			end
+	hotbarEquipRemote:FireServer(fromSlot)
+	local slotItem = player:GetAttribute(getSlotAttributeName(fromSlot))
+	if type(slotItem) == "string" and slotItem ~= "" then
+		local slotDef = ItemRegistry.get(slotItem)
+		if slotDef and slotDef.category == "placeable" then
+			startPlacementEvent:Fire(slotItem)
 		end
 	end
 end)

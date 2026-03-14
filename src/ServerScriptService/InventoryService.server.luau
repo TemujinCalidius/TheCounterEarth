@@ -427,11 +427,15 @@ local function spawnToolInBackpack(player: Player, itemId: string)
 		stale = nil
 	end
 
+	-- Default grip for all tools (position + rotation to sit in hand correctly)
+	local defaultGrip = CFrame.new(0.2, -0.05, 0.5) * CFrame.Angles(math.rad(0), math.rad(-70), math.rad(0))
+
 	-- Use an existing hand-placed template (e.g. swords from ToolInventoryService)
 	local template = toolsFolder and toolsFolder:FindFirstChild(itemId)
 	if template and template:IsA("Tool") then
 		local clone = template:Clone()
 		clone.Name  = itemId
+		clone.Grip  = (def and def.gripCFrame) or defaultGrip
 		clone:SetAttribute("_fromInv", true)
 		clone.Parent = backpack
 		return
@@ -468,7 +472,7 @@ local function spawnToolInBackpack(player: Player, itemId: string)
 			handle.Massless  = true
 			handle.Parent    = tool
 
-			tool.Grip = CFrame.new(0, -0.4, 0)
+			tool.Grip = (def and def.gripCFrame) or defaultGrip
 
 			-- Cache for future spawns (marked so we can clear stale versions)
 			tool:SetAttribute("_autoBuild", true)
@@ -1463,6 +1467,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 		bedrollPrompt.MaxActivationDistance = bedrollRange
 		bedrollPrompt.HoldDuration = 0
 		bedrollPrompt.RequiresLineOfSight = false
+		bedrollPrompt.UIOffset = Vector2.new(0, -40)  -- offset up so it doesn't overlap Pick Up
 		bedrollPrompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
 
 		bedrollPrompt.Triggered:Connect(function(trigPlayer)
@@ -1506,6 +1511,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 		pickupPrompt.HoldDuration = 0.5
 		pickupPrompt.RequiresLineOfSight = false
 		pickupPrompt.KeyboardKeyCode = Enum.KeyCode.F
+		pickupPrompt.UIOffset = Vector2.new(0, 40)   -- offset down so it doesn't overlap Lie Down
 		pickupPrompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
 
 		pickupPrompt.Triggered:Connect(function(trigPlayer)

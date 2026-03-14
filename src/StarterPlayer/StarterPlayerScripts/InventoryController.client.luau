@@ -21,6 +21,17 @@ local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForC
 local CraftingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CraftingConfig"))
 local CookingConfig  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
 
+-- Mobile / touch detection helpers
+local function isClickOrTap(input)
+	return input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function isMoveInput(input)
+	return input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
 -- Chewing sound for food consumption from inventory UI
 local chewingSound = Instance.new("Sound")
 chewingSound.Name = "InvChewingSound"
@@ -1061,7 +1072,7 @@ end
 
 -- Global drag tracking: move ghost, detect drop on release.
 UserInputService.InputChanged:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+	if not isMoveInput(input) then return end
 
 	-- Loot bag drag
 	if dragFromLootBag then
@@ -1110,7 +1121,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+	if not isClickOrTap(input) then return end
 
 	-- Loot bag drag drop
 	if dragFromLootBag then
@@ -1602,7 +1613,7 @@ local function refreshItemList()
 
 		-- Start of potential drag.
 		slot.InputBegan:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+			if not isClickOrTap(input) then return end
 			if getSlotItemId(capturedN) == "" then return end
 			dragFromSlot = capturedN
 			dragStartPos = UserInputService:GetMouseLocation()
@@ -1788,7 +1799,7 @@ local function wireOutputSlotDrag()
 
 	outputSlotWired = true
 	outputSlot.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		if not isClickOrTap(input) then return end
 		local itemId = outputSlot:GetAttribute("_ItemId")
 		if not itemId or itemId == "" then return end
 		dragFromCookingOutput = true
@@ -1813,7 +1824,7 @@ local lootBagPanelWired = false
 
 local function wireLootBagSlotDrag(btn: TextButton)
 	btn.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		if not isClickOrTap(input) then return end
 		local itemId = btn:GetAttribute("_LootItemId")
 		local qty = btn:GetAttribute("_LootQty")
 		if not itemId or itemId == "" then return end

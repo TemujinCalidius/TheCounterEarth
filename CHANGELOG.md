@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.12.0] - 2026-03-14
+
+### Added
+- **Mobile/tablet support** — full touch input support across all gameplay systems ([#22](https://github.com/TemujinCalidius/TheCounterEarth/issues/22), [#23](https://github.com/TemujinCalidius/TheCounterEarth/issues/23), [#24](https://github.com/TemujinCalidius/TheCounterEarth/issues/24), [#25](https://github.com/TemujinCalidius/TheCounterEarth/issues/25), [#26](https://github.com/TemujinCalidius/TheCounterEarth/issues/26))
+- **Hotbar tap-to-equip on mobile** — per-slot `InputEnded` handler for reliable touch equip without triggering virtual thumbstick
+- **Mobile sprint toggle** — RUN/WALK button (bottom-right) that toggles sprint intent, auto-disables when player stops moving
+- **Mobile placement system** — dedicated PLACE, Rotate (R), and Cancel (X) buttons for campfire/bedroll placement. Ghost follows screen center via camera-forward raycast with crosshair dot indicator
+- **Mobile harvest/attack** — `isClickOrTap()` helper unifies mouse click and touch input for combat and hit-to-harvest, with `gameProcessed` guard to ignore movement touches
+- **Inventory drag-and-drop on mobile** — `isMoveInput()` helper unifies mouse movement and touch drag for inventory slot reordering, inventory-to-hotbar pinning, and campfire input
+- **Hotbar drag overlay** — full-screen transparent overlay captures touch/mouse release during hotbar drag-to-reorder, fixing both PC and mobile drop detection
+- **Bedroll prompt spacing** — `UIOffset` on Lie Down and Pick Up ProximityPrompts prevents overlapping on mobile
+
+### Changed
+- **Hotbar `Active = true`** — hotbar root frame sinks touch input to prevent Roblox virtual thumbstick activation when tapping hotbar slots
+- **Placement confirm (PC)** — placement confirmation now uses `MouseButton1` only (not Touch), since mobile uses the dedicated PLACE button
+- **Mobile button positioning** — sprint button at Y=-200, placement buttons at Y=-280, well above Roblox's built-in JUMP button
+
+### Fixed
+- Hotbar drag-to-reorder broken on both PC and mobile — `GuiObject.InputEnded` fires on boundary exit, not release. Fixed with full-screen overlay approach ([#26](https://github.com/TemujinCalidius/TheCounterEarth/issues/26))
+- Placement fires on any screen touch on mobile — camera rotation and movement touches triggered placement ([#23](https://github.com/TemujinCalidius/TheCounterEarth/issues/23))
+- Hotbar acts as joystick on mobile — touch on bottom of screen activated Roblox virtual thumbstick ([#22](https://github.com/TemujinCalidius/TheCounterEarth/issues/22))
+
+---
+
 ## [0.11.0] - 2026-03-13
 
 ### Added

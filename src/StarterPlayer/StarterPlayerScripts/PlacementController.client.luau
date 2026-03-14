@@ -16,6 +16,8 @@ local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChi
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
+local isMobile = UserInputService.TouchEnabled
+
 local remotes        = ReplicatedStorage:WaitForChild("Remotes")
 local placeItemRemote = remotes:WaitForChild("PlaceItem") :: RemoteEvent
 
@@ -82,6 +84,43 @@ local hintCorner = Instance.new("UICorner")
 hintCorner.CornerRadius = UDim.new(0, 6)
 hintCorner.Parent       = hintLabel
 
+-- ── Mobile placement crosshair ────────────────────────────────────────────
+-- On mobile, the ghost follows the center of the screen (camera forward raycast)
+-- instead of finger position. Player moves & rotates camera to aim.
+-- A small crosshair dot shows the aim point.
+
+local crosshairGui: ScreenGui? = nil
+local crosshairDot: Frame? = nil
+
+if isMobile then
+	crosshairGui = Instance.new("ScreenGui")
+	crosshairGui.Name           = "PlacementCrosshair"
+	crosshairGui.ResetOnSpawn   = false
+	crosshairGui.IgnoreGuiInset = true
+	crosshairGui.DisplayOrder   = 5
+	crosshairGui.Parent         = player.PlayerGui
+
+	crosshairDot = Instance.new("Frame")
+	crosshairDot.Name                   = "Dot"
+	crosshairDot.Size                   = UDim2.new(0, 12, 0, 12)
+	crosshairDot.Position               = UDim2.new(0.5, -6, 0.5, -6)
+	crosshairDot.BackgroundColor3       = Color3.fromRGB(220, 220, 220)
+	crosshairDot.BackgroundTransparency = 0.3
+	crosshairDot.Visible                = false
+	crosshairDot.ZIndex                 = 10
+	crosshairDot.Parent                 = crosshairGui
+
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0) -- circle
+	dotCorner.Parent = crosshairDot
+
+	local dotStroke = Instance.new("UIStroke")
+	dotStroke.Color       = Color3.fromRGB(40, 40, 40)
+	dotStroke.Thickness   = 1
+	dotStroke.Transparency = 0.3
+	dotStroke.Parent      = crosshairDot
+end
+
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
 local function setGhostColor(color: Color3)
@@ -120,6 +159,7 @@ local function cleanupGhost()
 	needsCampfire = false
 	hintLabel.Visible = false
 	player:SetAttribute("IsPlacementMode", false)
+	if crosshairDot then crosshairDot.Visible = false end
 end
 
 -- ── Placement mode ──────────────────────────────────────────────────────────
@@ -160,6 +200,9 @@ local function startPlacement(itemId: string)
 
 	ghostModel.Parent = workspace
 
+	-- Show crosshair on mobile (ghost follows screen center)
+	if crosshairDot then crosshairDot.Visible = true end
+
 	-- Render loop: move ghost to mouse raycast position
 	renderConnection = RunService.RenderStepped:Connect(function()
 		if not ghostModel or not ghostModel.Parent then
@@ -174,8 +217,14 @@ local function startPlacement(itemId: string)
 		end
 		raycastParams.FilterDescendantsInstances = filterList
 
-		-- Raycast from mouse position
-		local mouseLocation = UserInputService:GetMouseLocation()
+		-- Raycast from mouse position (PC) or screen center (mobile)
+		local mouseLocation: Vector2
+		if isMobile then
+			local vpSize = camera.ViewportSize
+			mouseLocation = Vector2.new(vpSize.X * 0.5, vpSize.Y * 0.5)
+		else
+			mouseLocation = UserInputService:GetMouseLocation()
+		end
 		local ray = camera:ViewportPointToRay(mouseLocation.X, mouseLocation.Y)
 		local result = workspace:Raycast(ray.Origin, ray.Direction * RAYCAST_DISTANCE, raycastParams)
 
@@ -220,6 +269,86 @@ local function startPlacement(itemId: string)
 	end)
 end
 
+-- ── Mobile placement buttons (rotate / cancel) ────────────────────────────
+
+local rotateBtn: TextButton? = nil
+local cancelBtn: TextButton? = nil
+local placeBtn: TextButton? = nil
+
+local function setMobileButtonsVisible(visible: boolean)
+	if rotateBtn then rotateBtn.Visible = visible end
+	if cancelBtn then cancelBtn.Visible = visible end
+	if placeBtn then placeBtn.Visible = visible end
+end
+
+if isMobile then
+	local placementGui = Instance.new("ScreenGui")
+	placementGui.Name           = "PlacementButtons"
+	placementGui.ResetOnSpawn   = false
+	placementGui.IgnoreGuiInset = true
+	placementGui.DisplayOrder   = 10
+	placementGui.Parent         = player.PlayerGui
+
+	local function makeBtn(name: string, text: string, posX: number): TextButton
+		local btn = Instance.new("TextButton")
+		btn.Name                    = name
+		btn.Size                    = UDim2.new(0, 56, 0, 56)
+		btn.Position                = UDim2.new(1, posX, 1, -280)
+		btn.AnchorPoint             = Vector2.new(1, 1)
+		btn.BackgroundColor3        = Color3.fromRGB(42, 48, 66)
+		btn.BackgroundTransparency  = 0.3
+		btn.Text                    = text
+		btn.TextColor3              = Color3.fromRGB(200, 210, 230)
+		btn.Font                    = Enum.Font.GothamBold
+		btn.TextSize                = 16
+		btn.Visible                 = false
+		btn.ZIndex                  = 20
+		btn.Parent                  = placementGui
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 10)
+		corner.Parent = btn
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color     = Color3.fromRGB(70, 130, 200)
+		stroke.Thickness = 1.5
+		stroke.Parent    = btn
+
+		return btn
+	end
+
+	placeBtn  = makeBtn("PlaceBtn", "PLACE", -150)
+	placeBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 60) -- green = confirm
+	placeBtn.Size = UDim2.new(0, 70, 0, 56) -- wider to fit text
+
+	rotateBtn = makeBtn("RotateBtn", "R", -80)
+	cancelBtn = makeBtn("CancelBtn", "X", -10)
+
+	placeBtn.Activated:Connect(function()
+		if isPlacing then
+			if isValidPlacement and ghostModel and ghostModel.PrimaryPart then
+				local placementCFrame = ghostModel:GetPivot()
+				placeItemRemote:FireServer(currentItemId, placementCFrame)
+			end
+			cleanupGhost()
+			setMobileButtonsVisible(false)
+		end
+	end)
+
+	rotateBtn.Activated:Connect(function()
+		if isPlacing then
+			ghostRotation = ghostRotation + ROTATE_INCREMENT
+		end
+	end)
+
+	cancelBtn.Activated:Connect(function()
+		if isPlacing then
+			cleanupGhost()
+			setMobileButtonsVisible(false)
+		end
+	end)
+end
+
 -- ── Input handling ──────────────────────────────────────────────────────────
 
 UserInputService.InputBegan:Connect(function(input, _gameProcessed)
@@ -231,13 +360,14 @@ UserInputService.InputBegan:Connect(function(input, _gameProcessed)
 		return
 	end
 
-	-- Left click: confirm placement
+	-- Left click: confirm placement (PC only — mobile uses PLACE button)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		if isValidPlacement and ghostModel and ghostModel.PrimaryPart then
 			local placementCFrame = ghostModel:GetPivot()
 			placeItemRemote:FireServer(currentItemId, placementCFrame)
 		end
 		cleanupGhost()
+		setMobileButtonsVisible(false)
 		return
 	end
 
@@ -245,6 +375,7 @@ UserInputService.InputBegan:Connect(function(input, _gameProcessed)
 	if input.UserInputType == Enum.UserInputType.MouseButton2
 		or input.KeyCode == Enum.KeyCode.Escape then
 		cleanupGhost()
+		setMobileButtonsVisible(false)
 		return
 	end
 end)
@@ -254,5 +385,6 @@ end)
 startPlacementEvent.Event:Connect(function(itemId)
 	if type(itemId) == "string" and itemId ~= "" then
 		startPlacement(itemId)
+		setMobileButtonsVisible(true)
 	end
 end)
