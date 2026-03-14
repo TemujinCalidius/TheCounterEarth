@@ -16,11 +16,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Inventory drag-and-drop on mobile** — `isMoveInput()` helper unifies mouse movement and touch drag for inventory slot reordering, inventory-to-hotbar pinning, and campfire input
 - **Hotbar drag overlay** — full-screen transparent overlay captures touch/mouse release during hotbar drag-to-reorder, fixing both PC and mobile drop detection
 - **Bedroll prompt spacing** — `UIOffset` on Lie Down and Pick Up ProximityPrompts prevents overlapping on mobile
+- **AvatarRigService** (`AvatarRigService.server.luau`) — new server script creating Motor6D between HumanoidRootPart and RightHand Part so Roblox's built-in tool equip works with single-mesh custom avatars
+- **RightHand bone tracking** — AvatarSetup now tracks the `mixamorig:RightHand` bone each frame via `PreRender`, updating the Motor6D C0 for zero-lag tool rendering
+- **Jump freefall suppression** — AvatarSetup suppresses premature FreeFall state during jump ascent for single-mesh avatars, re-enables on descent for proper Freefall→Landed transition
+- **Avatar config** — `GameplayConfig.Avatar` section centralizes HipHeight (2.6), HandBoneName, MeshPartName, and JumpAnimHoldSeconds
+- **Per-item grip CFrame** — tools now support `gripCFrame` in ItemRegistry for custom hand positioning; default grip rotated -70° so tools (knife, axe) sit correctly in hand
 
 ### Changed
 - **Hotbar `Active = true`** — hotbar root frame sinks touch input to prevent Roblox virtual thumbstick activation when tapping hotbar slots
 - **Placement confirm (PC)** — placement confirmation now uses `MouseButton1` only (not Touch), since mobile uses the dedicated PLACE button
 - **Mobile button positioning** — sprint button at Y=-200, placement buttons at Y=-280, well above Roblox's built-in JUMP button
+- **JumpPower increased** — 50 → 80 to match custom avatar proportions
+- **Tool grip standardized** — both InventoryService and ToolInventoryService now apply the same `defaultGrip` CFrame with rotation, replacing the old `CFrame.new(0, -0.4, 0)`
 
 ### Fixed
 - Hotbar drag-to-reorder broken on both PC and mobile — `GuiObject.InputEnded` fires on boundary exit, not release. Fixed with full-screen overlay approach ([#26](https://github.com/TemujinCalidius/TheCounterEarth/issues/26))
