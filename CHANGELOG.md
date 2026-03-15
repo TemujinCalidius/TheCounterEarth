@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.13.0] - player inspect screen, draggable windows, crafting fix
+
+### Added
+- **Player inspect screen** (#28) — ProximityPrompt (G key) on other players opens a profile panel showing name, title, stat bars (health/hunger/thirst/fatigue), wealth tier, survival time, and equipped item. Includes TRADE button to initiate trade from the inspect panel
+- **PlayerInspectService** — server validates range, reads target's live attributes, derives wealth tier and formats survival time
+- **InspectController** — client manages ProximityPrompts on other players, builds inspect UI panel
+- **Draggable panels** — trade, loot bag, cooking, inspect, and inventory panels are draggable by title area (top 30px). Works on PC and mobile
+- **Cross-session window positions** — dragged panel positions saved to DataStore and restored on relog via `SaveUIPosition` remote
+- **Survival time tracking** — `_SurvivalSeconds` attribute accumulated server-side in Heartbeat, resets on death, persists across sessions
+- **Drag-to-trade screen-space fallback** — 80px tolerance when raycast misses mesh avatar geometry
+
+### Fixed
+- **Crafting consumes ingredients when inventory full** (#27) — pre-craft capacity check now simulates whether output fits before removing ingredients. Shows "Inventory full!" notification on failure
+- **Empty trade initiation** — TradingService now accepts `itemId=""` with `qty=0` to start a trade from the inspect screen TRADE button
+
+---
+
+## [0.12.2] - player inspect screen
+
+### Added
+- **Player inspect screen** — ProximityPrompt ("Inspect") on other players opens a profile panel showing health, hunger, thirst, fatigue bars, wealth tier, survival time, equipped item, and title placeholder. Includes TRADE button for direct trade initiation ([#28](https://github.com/TemujinCalidius/TheCounterEarth/issues/28))
+- **PlayerInspectService** (`PlayerInspectService.server.luau`) — validates range, reads target player's live attributes, calculates wealth tier and survival time
+- **InspectController** (`InspectController.client.luau`) — manages ProximityPrompts on player characters and renders the inspect panel UI
+- **Empty trade initiation** — TradingService now supports starting a trade with no initial item offer (used by inspect screen TRADE button)
+- **Survival time tracking** — `survivalSeconds` field in DataStore profile, accumulates while alive, resets on death
+
+---
+
+## [0.12.1] - crafting inventory-full fix
+
+### Fixed
+- **Crafting consumes ingredients when inventory full** — both client and server now simulate output fit (partial stacks, empty slots, slots freed by ingredient removal) before committing. Client blocks craft immediately with "Inventory full!" in progress bar (same style as "Too heavy to craft!"). Server double-checks and sends `CraftFailed` remote as safety net ([#27](https://github.com/TemujinCalidius/TheCounterEarth/issues/27))
+
+---
+
 ## [0.12.0] - 2026-03-14
 
 ### Added

@@ -23,6 +23,56 @@ local function isMoveInput(input)
 		or input.UserInputType == Enum.UserInputType.Touch
 end
 
+-- Remote for saving UI panel positions across sessions
+local saveUIPosRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("SaveUIPosition")
+
+-- Restore a saved panel position from player attribute, returns true if restored
+local function restorePanelPosition(panel: Frame, panelName: string)
+	local posStr = player:GetAttribute("_UIPos_" .. panelName)
+	if type(posStr) == "string" then
+		local x, y = string.match(posStr, "^(-?%d+),(-?%d+)$")
+		if x and y then
+			panel.Position = UDim2.new(0, tonumber(x) :: number, 0, tonumber(y) :: number)
+			return true
+		end
+	end
+	return false
+end
+
+-- Make a panel draggable via its title bar area (top 30px).
+-- panelName is used to persist position across sessions.
+local function makeDraggable(panel: Frame, panelName: string?)
+	local dragging    = false
+	local dragStart   = Vector2.new(0, 0)
+	local posStart    = Vector2.new(0, 0)
+
+	panel.InputBegan:Connect(function(input)
+		if not isClickOrTap(input) then return end
+		-- Only drag from top 30px (title area)
+		local localY = input.Position.Y - panel.AbsolutePosition.Y
+		if localY > 30 then return end
+		dragging   = true
+		dragStart  = Vector2.new(input.Position.X, input.Position.Y)
+		posStart   = Vector2.new(panel.AbsolutePosition.X, panel.AbsolutePosition.Y)
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if not isMoveInput(input) then return end
+		local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+		panel.Position = UDim2.new(0, posStart.X + delta.X, 0, posStart.Y + delta.Y)
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if isClickOrTap(input) and dragging then
+			dragging = false
+			if panelName then
+				saveUIPosRemote:FireServer(panelName, panel.AbsolutePosition.X, panel.AbsolutePosition.Y)
+			end
+		end
+	end)
+end
+
 local Config        = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
 local AssetIds      = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local StatsConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
@@ -1624,8 +1674,7 @@ local function buildCookingPanel()
 	local panel = Instance.new("Frame")
 	panel.Name = "CookingPanel"
 	panel.Size = UDim2.fromOffset(280, 90)
-	panel.Position = UDim2.new(0.5, -140, 1, -100)
-	panel.AnchorPoint = Vector2.new(0, 1)
+	panel.Position = UDim2.new(0.5, -140, 0.5, -45)
 	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 	panel.BackgroundTransparency = 0.15
 	panel.BorderSizePixel = 0
@@ -1843,6 +1892,8 @@ local function buildCookingPanel()
 	cookingPanel      = panel
 	cookingInputBtn   = inputBtn
 	cookingOutputBtn  = outputBtn
+	restorePanelPosition(panel, "Cooking")
+	makeDraggable(panel, "Cooking")
 	cookingProgressBar = progressFill
 	cookingTimerLabel = timerText
 	cookingInputIcon  = inputIcon
@@ -2100,9 +2151,7 @@ local function buildLootBagPanel()
 	local panel = Instance.new("Frame")
 	panel.Name = "LootBagPanel"
 	panel.Size = UDim2.fromOffset(260, 300)
-	-- Sit to the left of the centered inventory panel (540px wide, centered)
-	-- so both panels are visible side-by-side for drag-to-loot
-	panel.Position = UDim2.new(0.5, -270 - 260 - 8, 0.5, -150)
+	panel.Position = UDim2.new(0.5, -130, 0.5, -150)
 	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 	panel.BackgroundTransparency = 0.15
 	panel.BorderSizePixel = 0
@@ -2203,6 +2252,8 @@ local function buildLootBagPanel()
 	end)
 
 	lootBagPanel = panel
+	restorePanelPosition(panel, "LootBag")
+	makeDraggable(panel, "LootBag")
 end
 
 local function openLootBagPanel(bagModel: Model)
@@ -2470,9 +2521,7 @@ local function buildTradePanel()
 	local panel = Instance.new("Frame")
 	panel.Name = "TradePanel"
 	panel.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
-	-- Sit to the right of the centered inventory panel (540px wide, centered)
-	-- Inventory right edge is at 0.5 + 270, so trade panel starts 8px further right
-	panel.Position = UDim2.new(0.5, 270 + 8, 0.5, -PANEL_H / 2)
+	panel.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 	panel.BackgroundTransparency = 0.15
 	panel.BorderSizePixel = 0
@@ -2648,6 +2697,8 @@ local function buildTradePanel()
 	end)
 
 	tradePanel = panel
+	restorePanelPosition(panel, "Trade")
+	makeDraggable(panel, "Trade")
 end
 
 local function openTradePanel()

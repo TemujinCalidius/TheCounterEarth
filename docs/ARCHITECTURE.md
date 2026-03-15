@@ -18,14 +18,17 @@ src/
 │   ├── InventoryService.server.luau      -- Slot-based inventory, crafting, hotbar pinning, loot bags
 │   ├── CampfireService.server.luau       -- Campfire cooking: per-campfire inventory, cook ticks, state sync
 │   ├── ToolInventoryService.server.luau  -- World tool pickup, equip/unequip, tool templates
-│   └── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
+│   ├── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
+│   ├── TradingService.server.luau        -- Player-to-player trading
+│   └── PlayerInspectService.server.luau  -- Player inspect: profile data on request
 │
 ├── StarterPlayer/StarterPlayerScripts/   -- Client scripts
 │   ├── HudController.client.luau         -- HUD rendering, hotbar display, campfire cooking UI
 │   ├── InventoryController.client.luau   -- Inventory panel, recipe book, drag-and-drop
 │   ├── PlacementController.client.luau   -- Ghost preview placement mode for placeables
 │   ├── GatherController.client.luau      -- Hit-to-harvest feedback (shake, sound, animation, floating text)
-│   └── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
+│   ├── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
+│   └── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
 │
 assets/
 ├── raw/
@@ -234,7 +237,26 @@ Client-side hit feedback for the harvest system.
 
 **On HarvestNotify:** Shows error text near player head (e.g. "You need a knife", "Inventory full!")
 
-### 7. Loot Bag Controller (LootBagController)
+### 7. Player Inspect (PlayerInspectService + InspectController)
+
+Inspect other players' profiles via ProximityPrompt.
+
+**Server (PlayerInspectService):**
+- Creates `InspectRequest` (Client→Server) and `InspectData` (Server→Client) remotes
+- Accepts Player instance or UserId, validates range (InteractRange), 1s cooldown
+- Reads target's live attributes: health (from Humanoid), hunger, thirst, fatigue, credits, equipped item, survival time
+- Derives wealth tier from credits (Destitute/Poor/Comfortable/Wealthy/Elite)
+- Returns payload to requesting client
+
+**Client (InspectController):**
+- Attaches "Inspect" ProximityPrompt (G key) to other players' Head parts
+- `Exclusivity = AlwaysShow` so it renders alongside other prompts
+- On trigger: fires `InspectRequest` with target Player instance
+- On data received: shows inspect panel with stat bars, wealth tier, survival time, equipped item
+- TRADE button: fires `TradeInitiate` with empty offer to start trade from inspect screen
+- Panel is draggable and position persists across sessions
+
+### 8. Loot Bag Controller (LootBagController)
 
 Client-side rendering for loot bag timers and death bag beacons.
 
@@ -244,7 +266,7 @@ Client-side rendering for loot bag timers and death bag beacons.
 
 **Replication handling:** `waitForHandle()` with 3s timeout for bag PrimaryPart replication. `task.defer` in ChildAdded for attribute replication timing.
 
-### 8. HUD (HudController)
+### 9. HUD (HudController)
 
 Client-side UI rendering.
 
@@ -269,7 +291,7 @@ Client-side UI rendering.
 **Visual Effects:**
 - Vignette overlay: opacity increases as energy drops (darkens screen edges)
 
-### 9. Inventory Controller (InventoryController)
+### 10. Inventory Controller (InventoryController)
 
 Client-side inventory panel with drag-and-drop.
 

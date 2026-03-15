@@ -61,6 +61,8 @@ local campfireTakeRemote    = remotes:WaitForChild("CampfireTakeItem")   :: Remo
 local takeLootBagItemRemote = remotes:WaitForChild("TakeLootBagItem")    :: RemoteEvent
 local tradeUpdateOfferRemote = remotes:WaitForChild("TradeUpdateOffer")  :: RemoteEvent
 local tradeInitiateRemote    = remotes:WaitForChild("TradeInitiate")     :: RemoteEvent
+local craftFailedRemote      = remotes:WaitForChild("CraftFailed")       :: RemoteEvent
+local saveUIPosRemote        = remotes:WaitForChild("SaveUIPosition")    :: RemoteEvent
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -164,7 +166,7 @@ bagLabel.Font               = Enum.Font.GothamBold
 bagLabel.TextSize           = 13
 bagLabel.Parent             = bagBtn
 
--- Main panel (centered)
+-- Main panel (centered, or restored from saved position)
 local panel = Instance.new("Frame")
 panel.Name            = "Panel"
 panel.Size            = UDim2.new(0, PW, 0, PH)
@@ -174,6 +176,17 @@ panel.BorderSizePixel = 0
 panel.Visible         = false
 panel.Parent          = gui
 addCorner(panel, 8)
+
+-- Restore saved position if available
+do
+	local posStr = player:GetAttribute("_UIPos_Inventory")
+	if type(posStr) == "string" then
+		local x, y = string.match(posStr, "^(-?%d+),(-?%d+)$")
+		if x and y then
+			panel.Position = UDim2.new(0, tonumber(x) :: number, 0, tonumber(y) :: number)
+		end
+	end
+end
 
 local panelStroke = Instance.new("UIStroke")
 panelStroke.Color     = Color3.fromRGB(55, 65, 95)
@@ -255,7 +268,10 @@ end)
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
-		panelDragging = false
+		if panelDragging then
+			panelDragging = false
+			saveUIPosRemote:FireServer("Inventory", panel.AbsolutePosition.X, panel.AbsolutePosition.Y)
+		end
 	end
 end)
 
@@ -683,6 +699,47 @@ local function cancelCraft()
 	craftBarBg.Size = UDim2.new(1, -24, 0, 14)
 end
 
+-- ── Craft rejection notification (centered on screen) ────────────────────
+
+local function showCraftRejection(message: string)
+	local hudGui = player.PlayerGui:FindFirstChild("GameplayHud")
+	local parent = hudGui or player.PlayerGui
+	local notify = Instance.new("Frame")
+	notify.Name                  = "CraftRejectNotify"
+	notify.Size                  = UDim2.fromOffset(300, 36)
+	notify.Position              = UDim2.new(0.5, -150, 0.4, 0)
+	notify.AnchorPoint           = Vector2.new(0, 0)
+	notify.BackgroundColor3      = Color3.fromRGB(28, 32, 42)
+	notify.BackgroundTransparency = 0.15
+	notify.BorderSizePixel       = 0
+	notify.ZIndex                = 50
+	notify.Parent                = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent       = notify
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color        = BAD
+	stroke.Transparency = 0.4
+	stroke.Thickness    = 1.5
+	stroke.Parent       = notify
+
+	local label = Instance.new("TextLabel")
+	label.Size                   = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Text                   = message
+	label.TextColor3             = BAD
+	label.TextSize               = 16
+	label.Font                   = Enum.Font.GothamBold
+	label.ZIndex                 = 51
+	label.Parent                 = notify
+
+	task.delay(2.5, function()
+		if notify.Parent then notify:Destroy() end
+	end)
+end
+
 local function startCraft(recipeId: string)
 	if isCrafting then return end
 
@@ -707,18 +764,45 @@ local function startCraft(recipeId: string)
 		local currentWeight = tonumber(player:GetAttribute("CarryWeight")) or 0
 		local maxWeight = tonumber(player:GetAttribute("MaxCarryWeight")) or 5
 		if currentWeight + netWeight > maxWeight + 0.001 then
-			-- Too heavy — flash a warning on the craft bar
-			craftBarBg.Visible = true
-			craftBarFill.Size = UDim2.fromScale(0, 1)
-			craftBarLabel.Text = "Too heavy to craft!"
-			craftBarLabel.TextColor3 = BAD
-			task.delay(2, function()
-				if not isCrafting then
-					craftBarBg.Visible = false
-					craftBarLabel.TextColor3 = TEXT
-				end
-			end)
+			showCraftRejection("Too heavy to craft!")
 			return
+		end
+	end
+
+	-- Check slot capacity: will the output fit after ingredient removal?
+	if outputDef then
+		local maxSlots = getMaxSlots()
+		local stackRoom = 0
+		for n = 1, maxSlots do
+			if getSlotItemId(n) == recipe.output.itemId then
+				stackRoom += outputDef.stackMax - getSlotQty(n)
+			end
+		end
+		if stackRoom < recipe.output.qty then
+			local emptySlots = 0
+			for n = 1, maxSlots do
+				if getSlotItemId(n) == "" then emptySlots += 1 end
+			end
+			-- Count slots freed by consuming entire stacks of ingredients
+			local freedSlots = 0
+			local ingRemaining: { [string]: number } = {}
+			for _, ing in ipairs(recipe.ingredients) do
+				ingRemaining[ing.itemId] = (ingRemaining[ing.itemId] or 0) + ing.qty
+			end
+			for n = maxSlots, 1, -1 do
+				local slotItem = getSlotItemId(n)
+				if slotItem ~= "" and ingRemaining[slotItem] and ingRemaining[slotItem] > 0 then
+					local qty  = getSlotQty(n)
+					local take = math.min(ingRemaining[slotItem], qty)
+					ingRemaining[slotItem] -= take
+					if take >= qty then freedSlots += 1 end
+				end
+			end
+			local totalRoom = stackRoom + (emptySlots + freedSlots) * outputDef.stackMax
+			if totalRoom < recipe.output.qty then
+				showCraftRejection("Inventory full!")
+				return
+			end
 		end
 	end
 
@@ -1271,6 +1355,9 @@ UserInputService.InputEnded:Connect(function(input)
 		if not pinned then
 			local camera = workspace.CurrentCamera
 			if camera then
+				local targetPlayer: Player? = nil
+
+				-- Primary: raycast onto character mesh
 				local ray = camera:ViewportPointToRay(pos.X, pos.Y)
 				local params = RaycastParams.new()
 				params.FilterType = Enum.RaycastFilterType.Exclude
@@ -1279,15 +1366,39 @@ UserInputService.InputEnded:Connect(function(input)
 				if result and result.Instance then
 					local model = result.Instance:FindFirstAncestorWhichIsA("Model")
 					if model then
-						local targetPlayer = Players:GetPlayerFromCharacter(model)
-						if targetPlayer and targetPlayer ~= player then
-							local itemId = getSlotItemId(fromSlot)
-							local qty    = getSlotQty(fromSlot)
-							if itemId ~= "" and qty > 0 then
-								tradeInitiateRemote:FireServer(targetPlayer.UserId, itemId, qty)
-								pinned = true
+						targetPlayer = Players:GetPlayerFromCharacter(model)
+					end
+				end
+
+				-- Fallback: check if drop is near any player's screen position (helps with mesh avatars)
+				if not targetPlayer then
+					local SCREEN_TOLERANCE = 80 -- pixels
+					local bestDist = SCREEN_TOLERANCE
+					for _, p in ipairs(Players:GetPlayers()) do
+						if p == player then continue end
+						local char = p.Character
+						local root = char and char:FindFirstChild("HumanoidRootPart")
+						if root then
+							local screenPos, onScreen = camera:WorldToViewportPoint(root.Position)
+							if onScreen then
+								local dx = pos.X - screenPos.X
+								local dy = pos.Y - screenPos.Y
+								local dist = math.sqrt(dx * dx + dy * dy)
+								if dist < bestDist then
+									bestDist = dist
+									targetPlayer = p
+								end
 							end
 						end
+					end
+				end
+
+				if targetPlayer and targetPlayer ~= player then
+					local itemId = getSlotItemId(fromSlot)
+					local qty    = getSlotQty(fromSlot)
+					if itemId ~= "" and qty > 0 then
+						tradeInitiateRemote:FireServer(targetPlayer.UserId, itemId, qty)
+						pinned = true
 					end
 				end
 			end
@@ -1865,4 +1976,36 @@ task.spawn(function()
 		wireLootBagPanel()
 		task.wait(1)
 	end
+end)
+
+-- ── Craft-failed notification ────────────────────────────────────────────
+
+craftFailedRemote.OnClientEvent:Connect(function(reason: string)
+	local character = player.Character
+	if not character then return end
+	local head = character:FindFirstChild("Head")
+	if not head then return end
+
+	local bb = Instance.new("BillboardGui")
+	bb.Name              = "CraftFailNotify"
+	bb.Adornee           = head
+	bb.Size              = UDim2.new(0, 200, 0, 30)
+	bb.StudsOffset       = Vector3.new(0, 3, 0)
+	bb.AlwaysOnTop       = true
+	bb.Parent            = player.PlayerGui
+
+	local label = Instance.new("TextLabel")
+	label.Size                   = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text                   = reason or "Craft failed!"
+	label.TextColor3             = Color3.fromRGB(255, 80, 80)
+	label.Font                   = Enum.Font.GothamBold
+	label.TextSize               = 14
+	label.TextStrokeTransparency = 0.4
+	label.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+	label.Parent                 = bb
+
+	task.delay(2, function()
+		if bb.Parent then bb:Destroy() end
+	end)
 end)

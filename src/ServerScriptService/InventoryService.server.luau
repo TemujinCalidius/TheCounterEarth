@@ -18,6 +18,7 @@
 --   DropItem          (RemoteEvent) -- client drops items from a slot to the world
 --   PinToSpecificSlot (RemoteEvent) -- client pins an item to a specific hotbar slot
 --   SwapHotbarSlots   (RemoteEvent) -- client reorders two hotbar slots
+--   CraftFailed       (RemoteEvent) -- server notifies client craft was rejected
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -55,6 +56,7 @@ local placeItemRemote         = makeRemote("PlaceItem")
 local openLootBagRemote       = makeRemote("OpenLootBag")
 local lootBagStateRemote      = makeRemote("LootBagState")
 local takeLootBagItemRemote   = makeRemote("TakeLootBagItem")
+local craftFailedRemote       = makeRemote("CraftFailed")
 
 -- ── Loot bag viewer tracking ────────────────────────────────────────────
 local lootBagViewers: { [Model]: { Player } } = {}
@@ -1120,10 +1122,64 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		if r.id == recipeId then recipe = r; break end
 	end
 	if not recipe then return end
-	if not ItemRegistry.get(recipe.output.itemId) then return end
+
+	local outputDef = ItemRegistry.get(recipe.output.itemId)
+	if not outputDef then return end
+
+	-- Check ingredients exist
 	for _, ing in ipairs(recipe.ingredients) do
 		if getTotalQty(player, ing.itemId) < ing.qty then return end
 	end
+
+	-- Simulate whether output will fit after ingredient removal
+	local maxSlots  = getMaxSlots(player)
+	local outputQty = recipe.output.qty
+
+	-- Room in existing partial stacks of the output item
+	local stackRoom = 0
+	for n = 1, maxSlots do
+		if getSlotItemId(player, n) == recipe.output.itemId then
+			stackRoom += outputDef.stackMax - getSlotQty(player, n)
+		end
+	end
+
+	if stackRoom < outputQty then
+		-- Count empty slots + slots that ingredient removal would free
+		local emptySlots = 0
+		for n = 1, maxSlots do
+			if getSlotItemId(player, n) == "" then
+				emptySlots += 1
+			end
+		end
+
+		-- Slots freed by consuming entire stacks of ingredients
+		local freedSlots = 0
+		-- Build a map of how much of each ingredient we need to remove
+		local ingRemaining: { [string]: number } = {}
+		for _, ing in ipairs(recipe.ingredients) do
+			ingRemaining[ing.itemId] = (ingRemaining[ing.itemId] or 0) + ing.qty
+		end
+		-- Walk slots back-to-front (same order as removeQty) to count freed slots
+		for n = maxSlots, 1, -1 do
+			local slotItem = getSlotItemId(player, n)
+			if slotItem ~= "" and ingRemaining[slotItem] and ingRemaining[slotItem] > 0 then
+				local qty  = getSlotQty(player, n)
+				local take = math.min(ingRemaining[slotItem], qty)
+				ingRemaining[slotItem] -= take
+				if take >= qty then
+					freedSlots += 1
+				end
+			end
+		end
+
+		local totalRoom = stackRoom + (emptySlots + freedSlots) * outputDef.stackMax
+		if totalRoom < outputQty then
+			craftFailedRemote:FireClient(player, "Inventory full!")
+			return
+		end
+	end
+
+	-- Safe to craft: remove ingredients then add output
 	for _, ing in ipairs(recipe.ingredients) do
 		removeQty(player, ing.itemId, ing.qty)
 	end

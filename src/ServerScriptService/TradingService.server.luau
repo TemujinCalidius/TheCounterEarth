@@ -238,16 +238,19 @@ tradeInitiateRemote.OnServerEvent:Connect(function(requester: Player, targetUser
 	-- Range check
 	if distanceBetween(requester, targetPlayer) > INTERACT_RANGE then return end
 
-	-- Validate the offered item
+	-- Validate the offered item (empty initiation allowed from inspect screen)
 	local id = sanitizeItemId(itemId)
 	local amount = math.floor(tonumber(qty) or 0)
-	if id == "" or amount < 1 then return end
-	local def = ItemRegistry.get(id)
-	if not def then return end
-
-	-- Verify requester has enough
-	local inInventory = invGetQty:Invoke(requester, id)
-	if inInventory < amount then return end
+	if id ~= "" and amount >= 1 then
+		local def = ItemRegistry.get(id)
+		if not def then return end
+		local inInventory = invGetQty:Invoke(requester, id)
+		if inInventory < amount then return end
+	else
+		-- Empty initiation — no initial offer
+		id = ""
+		amount = 0
+	end
 
 	-- Store pending request with initial offer
 	pendingRequests[targetPlayer] = {

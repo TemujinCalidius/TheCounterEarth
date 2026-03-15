@@ -57,6 +57,12 @@ end
 local sprintIntentRemote = ensureRemoteEvent("SprintIntent")
 ensureRemoteEvent("HotbarEquipRequest")
 ensureRemoteEvent("HotbarAttackRequest")
+local saveUIPosRemote = ensureRemoteEvent("SaveUIPosition")
+
+-- ── UI position persistence ───────────────────────────────────────────────
+-- Stores per-player panel positions for cross-session persistence.
+local VALID_UI_PANELS = { Inventory = true, Trade = true, LootBag = true, Cooking = true, Inspect = true }
+local playerUIPositions: { [Player]: { [string]: string } } = {}
 
 -- ── Server bindables (InventoryService fires consume effects here) ─────────
 local bindablesFolder = ServerStorage:FindFirstChild("ServerBindables")
@@ -101,6 +107,8 @@ type PlayerState = {
 	bedrollSpawnCFrame: CFrame?,   -- CFrame of player's bedroll (set on placement, cleared on destroy)
 	deathRespawnCFrame: CFrame?,   -- snapshot of bedrollSpawnCFrame at time of death
 	lastPosition: { x: number, y: number, z: number }?,  -- saved logout position for relog teleport
+	survivalSeconds: number,       -- total time alive (resets on death, persists across sessions)
+	survivalLastTick: number,      -- os.clock() of last survival time accumulation
 }
 
 local playerStates: { [Player]: PlayerState } = {}
@@ -272,6 +280,7 @@ local function makeDefaultProfile(): { [string]: any }
 		},
 		inventory = emptyInventory(),
 		invSlots = {},
+		survivalSeconds = 0,
 	}
 end
 
@@ -428,6 +437,8 @@ local function decodeProfile(raw: any): { [string]: any }?
 		inventory = decodeInventory(inventoryRaw),
 		invSlots  = decodeInvSlots(raw),
 		lastPosition = lastPosition,
+		survivalSeconds = tonumber(raw.survivalSeconds) or 0,
+		uiPositions = if type(raw.uiPositions) == "table" then raw.uiPositions else {},
 	}
 end
 
@@ -840,6 +851,8 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 		inventory = readInventoryFromPlayer(player),
 		invSlots  = invSlots,
 		lastPosition = lastPosition,
+		survivalSeconds = math.floor(state.survivalSeconds),
+		uiPositions = playerUIPositions[player] or {},
 	}
 end
 
@@ -982,6 +995,10 @@ local function setupCharacter(player: Player, character: Model)
 		state.sprintRequested = false
 		state.energy = Config.Energy.Max
 		state.savedHealth = humanoid.MaxHealth
+		-- Reset survival timer on death
+		state.survivalSeconds = 0
+		state.survivalLastTick = os.clock()
+		player:SetAttribute("_SurvivalSeconds", 0)
 		-- Reset ALL survival stats on death
 		if state.bleedStacks > 0 then stopBleeding(player, state) end
 		if state.poisonStartTime then stopPoison(player, state) end
@@ -1081,6 +1098,8 @@ local function setupPlayer(player: Player)
 		bedrollSpawnCFrame = nil,
 		deathRespawnCFrame = nil,
 		lastPosition = profile.lastPosition,
+		survivalSeconds = tonumber(profile.survivalSeconds) or 0,
+		survivalLastTick = os.clock(),
 	}
 
 	playerStates[player] = state
@@ -1117,6 +1136,18 @@ local function setupPlayer(player: Player)
 		player:SetAttribute(StatsConfig.AttributeNames.IsPoisoned, false)
 	end
 	player:SetAttribute(StatsConfig.AttributeNames.IsResting,   false)
+	player:SetAttribute("_SurvivalSeconds", math.floor(state.survivalSeconds))
+
+	-- Restore saved UI panel positions
+	local savedUIPos = if type(profile.uiPositions) == "table" then profile.uiPositions else {}
+	playerUIPositions[player] = {}
+	for panelName, posStr in pairs(savedUIPos) do
+		if VALID_UI_PANELS[panelName] and type(posStr) == "string" then
+			playerUIPositions[player][panelName] = posStr
+			player:SetAttribute("_UIPos_" .. panelName, posStr)
+		end
+	end
+
 	writeInventoryAttributes(player, decodeInventory(profile.inventory))
 
 	-- Restore slot-based inventory from saved profile.
@@ -1222,6 +1253,7 @@ local function cleanupPlayer(player: Player)
 	clearCharacterConnections(state)
 	clearPlayerConnections(state)
 	playerStates[player] = nil
+	playerUIPositions[player] = nil
 end
 
 -- ── Bedroll spawn tracking ────────────────────────────────────────────────
@@ -1286,7 +1318,20 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			saveProfile(player, false)
 		end
 
+		-- ── Survival time accumulation (only while alive) ─────────────────
 		local humanoid = state.humanoid
+		if humanoid and humanoid.Parent and humanoid.Health > 0 then
+			local elapsed = now - state.survivalLastTick
+			state.survivalSeconds += elapsed
+			state.survivalLastTick = now
+			-- Update attribute every ~5 seconds to avoid excessive replication
+			if math.floor(state.survivalSeconds) % 5 == 0 then
+				player:SetAttribute("_SurvivalSeconds", math.floor(state.survivalSeconds))
+			end
+		else
+			state.survivalLastTick = now
+		end
+
 		if not humanoid or humanoid.Parent == nil or humanoid.Health <= 0 then
 			continue
 		end
@@ -1588,6 +1633,21 @@ applyStatusEvent.Event:Connect(function(player: Player, effect: string)
 end)
 
 Players.PlayerAdded:Connect(setupPlayer)
+
+-- ── UI position save handler ──────────────────────────────────────────────
+saveUIPosRemote.OnServerEvent:Connect(function(player: Player, panelName: any, posX: any, posY: any)
+	if type(panelName) ~= "string" or not VALID_UI_PANELS[panelName] then return end
+	if type(posX) ~= "number" or type(posY) ~= "number" then return end
+	local posStr = tostring(math.floor(posX)) .. "," .. tostring(math.floor(posY))
+	if not playerUIPositions[player] then
+		playerUIPositions[player] = {}
+	end
+	playerUIPositions[player][panelName] = posStr
+	local state = playerStates[player]
+	if state then
+		state.profileDirty = true
+	end
+end)
 
 Players.PlayerRemoving:Connect(function(player)
 	saveProfile(player, true)
