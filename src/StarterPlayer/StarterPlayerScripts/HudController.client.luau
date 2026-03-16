@@ -813,6 +813,11 @@ end
 local sprintHeld = false
 local equippedSlot = 0
 
+-- Double-tap W to toggle sprint (alternative for players whose Shift is intercepted)
+local DOUBLE_TAP_WINDOW = 0.3 -- seconds
+local lastWTapTime = 0
+local doubleTapSprint = false
+
 local function getSlotAttributeName(slot: number): string
 	return "HotbarSlot" .. tostring(slot)
 end
@@ -1092,9 +1097,26 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		tryAttackWithEquippedItem()
 		return
 	end
-	if gameProcessed then return end
+	-- Sprint: accept both Shift keys regardless of gameProcessed
+	-- (Roblox shift-lock or Windows accessibility can mark LeftShift as processed)
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		setSprint(true)
+		return
+	end
 
-	if input.KeyCode == Enum.KeyCode.LeftShift then setSprint(true); return end
+	-- Double-tap W to toggle sprint
+	if input.KeyCode == Enum.KeyCode.W then
+		local now = os.clock()
+		if now - lastWTapTime < DOUBLE_TAP_WINDOW then
+			doubleTapSprint = not doubleTapSprint
+			setSprint(doubleTapSprint)
+			lastWTapTime = 0 -- reset so triple-tap doesn't re-toggle
+		else
+			lastWTapTime = now
+		end
+	end
+
+	if gameProcessed then return end
 
 	local numKeys = {
 		[Enum.KeyCode.One] = 1, [Enum.KeyCode.Two] = 2, [Enum.KeyCode.Three] = 3,
@@ -1117,12 +1139,37 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.LeftShift then setSprint(false) end
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		doubleTapSprint = false -- Shift release always clears double-tap state
+		setSprint(false)
+	end
 end)
 
 UserInputService.WindowFocusReleased:Connect(function()
+	doubleTapSprint = false
 	setSprint(false)
 end)
+
+-- Auto-cancel double-tap sprint when player stops moving
+do
+	local function watchRunning(humanoid: Humanoid)
+		humanoid.Running:Connect(function(speed)
+			if doubleTapSprint and speed < 0.1 then
+				doubleTapSprint = false
+				setSprint(false)
+			end
+		end)
+	end
+	local char = player.Character
+	if char then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then watchRunning(hum) end
+	end
+	player.CharacterAdded:Connect(function(c)
+		local hum = c:WaitForChild("Humanoid", 10)
+		if hum then watchRunning(hum) end
+	end)
+end
 
 -- ---------------------------------------------------------------------------
 -- Mobile sprint toggle button

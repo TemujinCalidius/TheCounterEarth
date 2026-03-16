@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.13.2] - sprint fix for Windows + double-tap W
+
+### Fixed
+- **LeftShift sprint not working on some Windows PCs** — Roblox shift-lock or Windows accessibility (sticky keys, language switcher) could mark LeftShift as "processed", causing the input handler to ignore it. Shift check now runs before the gameProcessed guard
+
+### Added
+- **RightShift also sprints** — alternative for players whose LeftShift is intercepted
+- **Double-tap W to toggle sprint** — tap W twice within 0.3s to start sprinting. Auto-cancels when you stop moving. Works alongside hold-to-sprint with Shift
+
+---
+
 ## [0.13.1] - HTTP event bridge (game → website/Discord)
 
 ### Added
