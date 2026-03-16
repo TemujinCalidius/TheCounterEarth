@@ -50,6 +50,7 @@ type CampfireState = {
 	output:       SlotData?,
 	cookProgress: number,
 	cookDuration: number,
+	lastAddedBy:  Player?,  -- player who last added input (gets cook_complete credit)
 }
 
 local campfireStates: { [Model]: CampfireState } = {}
@@ -296,6 +297,7 @@ campfireAddRemote.OnServerEvent:Connect(function(player, campfireModel, rawItemI
 			state.cookProgress = 0
 		end
 	end
+	state.lastAddedBy = player  -- track who added input for cook_complete attribution
 
 	broadcastState(campfireModel, state)
 end)
@@ -383,10 +385,15 @@ RunService.Heartbeat:Connect(function(dt: number)
 				state.cookDuration = 0
 			end
 
-			-- Fire cook_complete event for the web/Discord bridge
-			local placedBy = tonumber(model:GetAttribute("_PlacedBy"))
-			local cookPlayer: Player? = placedBy and Players:GetPlayerByUserId(placedBy) or nil
+			-- Fire cook_complete for the player who added the input item
 			local cookOutputDef = ItemRegistry.get(recipe.output)
+			local cookPlayer: Player? = state.lastAddedBy
+			if cookPlayer and not cookPlayer.Parent then cookPlayer = nil end
+			-- Fallback to campfire placer if the adder left
+			if not cookPlayer then
+				local placedBy = tonumber(model:GetAttribute("_PlacedBy"))
+				cookPlayer = placedBy and Players:GetPlayerByUserId(placedBy) or nil
+			end
 			EventBridge.fire("cook_complete", cookPlayer, {
 				itemId = recipe.output,
 				itemName = cookOutputDef and cookOutputDef.displayName or recipe.output,

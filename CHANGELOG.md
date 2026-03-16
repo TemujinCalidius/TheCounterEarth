@@ -15,9 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Trade quantity picker** — dragging a stack (qty > 1) onto the trade panel or another player now shows a quantity selector popup instead of offering the full stack. Single items skip the picker. Includes +/- buttons and manual entry
 - **cook_complete event** — campfire cooking now fires `cook_complete` to the EventBridge for Discord/website tracking
 - **Profession mapping for events** — `harvest_complete`, `craft_complete`, `cook_complete` events include `profession`, `xpGained`, and `itemName` fields for the website's profession XP system
-- **Death cause tracking** — `player_death` events now include `cause` field (starvation, dehydration, bleeding, poison, pvp, unknown) and `killerUserId`/`killerName` for PvP deaths
-- **PvP damage tagging** — `PvPDamageTag` BindableEvent in ServerBindables for weapon scripts to tag attackers (enables PvP kill feed on Discord)
+- **Death cause tracking** — `player_death` events now include `cause` field (starvation, dehydration, bleeding, poison, unknown). PvP tagging infrastructure ready for when combat is added
 - **Trade item names** — `trade_complete` events now include `itemName` alongside `itemId` in offer arrays for richer Discord trade feed
+- **Comprehensive gameplay tracking events** — `item_dropped`, `tool_broken`, `spoilage_lost`, `inventory_full_reject`, `campfire_session`, `first_campfire`, `first_craft`, `starvation_close_call` (hunger & thirst), `bedroll_placed_near_others`
+- **cook_complete attribution fix** — cooking XP now goes to the player who added the raw food, not just the campfire placer. Falls back to placer if adder left the server
 
 ### Changed
 - **EventBridge event types renamed** to match web server schema: `harvest` → `harvest_complete`, `craft_item` → `craft_complete`
@@ -28,12 +29,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - 35+ achievements system with Discord announcements
 - Milestone announcements (profession tier-ups, wealth changes, survival records, login streaks)
 - Login streak tracking with `/streak` command
-- PvP kill tracking and enhanced death feed
 - Live server status embed (auto-updates every 2 min)
 - Rich list: top 10 wealthiest players in hall-of-fame
 - Weekly recap with Player of the Week award
 - Trade watchlist alerts via `/watchlist` command
-- Enhanced leaderboards: PvP kills, login streak, best survival
+- Enhanced leaderboards: login streak, best survival
 - Live "Currently in-game" indicator on website profiles
 
 ---

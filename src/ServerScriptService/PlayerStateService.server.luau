@@ -1415,10 +1415,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		if shouldSprint then
 			hungerDrain += StatsConfig.Hunger.SprintExtraDrainPerSecond * deltaTime
 		end
+		local wasHungry = state.hunger <= 0
 		setHunger(player, state, state.hunger - hungerDrain)
 		if state.hunger <= 0 and humanoid.Health > 0 then
 			humanoid:TakeDamage(StatsConfig.Hunger.OnEmpty.HealthDrainPerSecond * deltaTime)
 			state.lastDamageCause = "starvation"
+			if not wasHungry then
+				EventBridge.fire("starvation_close_call", player, { stat = "hunger" })
+			end
 		end
 
 		-- ── Thirst ────────────────────────────────────────────────────────────
@@ -1426,10 +1430,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		if shouldSprint then
 			thirstDrain += StatsConfig.Thirst.SprintExtraDrainPerSecond * deltaTime
 		end
+		local wasThirsty = state.thirst <= 0
 		setThirst(player, state, state.thirst - thirstDrain)
-		if thirstEmpty and humanoid.Health > 0 then
+		if state.thirst <= 0 and humanoid.Health > 0 then
 			humanoid:TakeDamage(StatsConfig.Thirst.OnEmpty.HealthDrainPerSecond * deltaTime)
 			state.lastDamageCause = "dehydration"
+			if not wasThirsty then
+				EventBridge.fire("starvation_close_call", player, { stat = "thirst" })
+			end
 		end
 
 		-- ── Fatigue ───────────────────────────────────────────────────────────
@@ -1514,6 +1522,23 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			if shouldSit and not state.sittingAtCampfire then
 				state.sittingAtCampfire = true
 				player:SetAttribute("SittingAtCampfire", true)
+				-- Fire campfire_session when sitting with 2+ other players nearby
+				local nearbyCount = 0
+				for _, otherPlayer in ipairs(Players:GetPlayers()) do
+					if otherPlayer ~= player then
+						local otherState = playerStates[otherPlayer]
+						if otherState and otherState.sittingAtCampfire then
+							local otherChar = otherPlayer.Character
+							local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
+							if otherRoot and rootPart and (otherRoot.Position - rootPart.Position).Magnitude <= 20 then
+								nearbyCount += 1
+							end
+						end
+					end
+				end
+				if nearbyCount >= 2 then
+					EventBridge.fire("campfire_session", player, { nearbyPlayers = nearbyCount })
+				end
 			elseif not shouldSit and state.sittingAtCampfire then
 				state.sittingAtCampfire = false
 				player:SetAttribute("SittingAtCampfire", false)

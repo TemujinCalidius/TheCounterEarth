@@ -733,6 +733,7 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	local added = addQty(player, itemId, yield)
 	if not added then
 		harvestNotifyRemote:FireClient(player, "Inventory full!")
+		EventBridge.fire("inventory_full_reject", player, { itemId = itemId, qty = yield, context = "harvest" })
 		return
 	end
 
@@ -803,6 +804,10 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 						end
 						refreshWeight(player)
 						harvestNotifyRemote:FireClient(player, "Your " .. toolDef.displayName .. " broke!")
+						EventBridge.fire("tool_broken", player, {
+							itemId = toolItemId,
+							itemName = toolDef.displayName,
+						})
 					else
 						setSlotDurabilities(player, toolInvSlot, durs)
 					end
@@ -1217,6 +1222,14 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		xpGained = (recipe.output.qty or 1) * 10,
 	})
 
+	if not player:GetAttribute("_HasCrafted") then
+		player:SetAttribute("_HasCrafted", true)
+		EventBridge.fire("first_craft", player, {
+			itemId = recipe.output.itemId,
+			itemName = craftDef and craftDef.displayName or recipe.output.itemId,
+		})
+	end
+
 	cleanOrphanedHotbarPins(player)
 end)
 
@@ -1451,6 +1464,13 @@ dropItemRemote.OnServerEvent:Connect(function(player, rawSlot, rawQty)
 	refreshWeight(player)
 	cleanOrphanedHotbarPins(player)
 	createLootBag(player, { { itemId = itemId, qty = qty } })
+
+	local dropDef = ItemRegistry.get(itemId)
+	EventBridge.fire("item_dropped", player, {
+		itemId = itemId,
+		itemName = dropDef and dropDef.displayName or itemId,
+		qty = qty,
+	})
 end)
 
 -- ── PlaceItem ─────────────────────────────────────────────────────────────
@@ -1635,6 +1655,36 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 
 	placed:PivotTo(rawCFrame)
 	placed.Parent = Workspace
+
+	-- Track placement milestones
+	if itemId == "campfire" then
+		if not player:GetAttribute("_HasPlacedCampfire") then
+			player:SetAttribute("_HasPlacedCampfire", true)
+			EventBridge.fire("first_campfire", player, {})
+		end
+	end
+
+	if itemId == "bedroll" then
+		-- Check if placed near other players' bedrolls (emerging settlement)
+		local nearbyBedrolls = 0
+		for _, obj in ipairs(Workspace:GetChildren()) do
+			if obj ~= placed
+				and obj:IsA("Model")
+				and obj:GetAttribute("_PlacedItem") == "bedroll"
+				and obj:GetAttribute("_PlacedBy") ~= player.UserId
+			then
+				local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+				if part and (part.Position - rawCFrame.Position).Magnitude <= 30 then
+					nearbyBedrolls += 1
+				end
+			end
+		end
+		if nearbyBedrolls > 0 then
+			EventBridge.fire("bedroll_placed_near_others", player, {
+				nearbyBedrolls = nearbyBedrolls,
+			})
+		end
+	end
 end)
 
 -- ── Spoilage loop ────────────────────────────────────────────────────────
@@ -1702,6 +1752,9 @@ RunService.Heartbeat:Connect(function(dt)
 			addQty(player, "spoiled_food", totalSpoiled)
 			refreshWeight(player)
 			cleanOrphanedHotbarPins(player)
+			EventBridge.fire("spoilage_lost", player, {
+				qty = totalSpoiled,
+			})
 		end
 	end
 end)

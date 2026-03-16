@@ -419,8 +419,19 @@ Pushes game events to the external website/Discord bot via HttpService.
 | `harvest_complete` | InventoryService | Batched | profession from item tags, itemId, itemName, xpGained |
 | `cook_complete` | CampfireService | Batched | profession=cooking, itemId, itemName, xpGained |
 | `item_consume` | InventoryService | Batched | itemId |
+| `item_dropped` | InventoryService | Batched | itemId, qty |
+| `tool_broken` | InventoryService | Batched | itemId, itemName |
+| `spoilage_lost` | InventoryService | Batched | totalSpoiled |
+| `inventory_full_reject` | InventoryService | Batched | itemId |
+| `first_campfire` | InventoryService | Batched | — (per-session milestone) |
+| `first_craft` | InventoryService | Batched | itemId, itemName |
+| `bedroll_placed_near_others` | InventoryService | Batched | nearbyBedrolls |
+| `starvation_close_call` | PlayerStateService | Batched | stat (hunger/thirst) |
+| `campfire_session` | PlayerStateService | Batched | nearbyPlayers |
 
 **PvP damage tagging:** Weapon scripts should fire `ServerBindables.PvPDamageTag:Fire(victimPlayer, attackerPlayer)` when dealing damage. This tags the victim so `player_death` includes killer info.
+
+**cook_complete attribution:** Fires for the player who last added raw food to the campfire input slot (`lastAddedBy`). Falls back to the campfire placer if the adder has left the server.
 
 ---
 
