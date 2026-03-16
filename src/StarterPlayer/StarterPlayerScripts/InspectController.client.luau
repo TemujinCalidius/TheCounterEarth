@@ -182,7 +182,7 @@ end)
 -- ── Inspect Panel UI ───────────────────────────────────────────────────
 
 local PANEL_W = 280
-local PANEL_H = 340
+local PANEL_H = 364
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name                = "InspectGui"
@@ -404,6 +404,7 @@ end
 local wealthValue  = makeInfoRow("Wealth",  "Wealth",   INFO_Y_START)
 local survivalValue = makeInfoRow("Survival", "Survived", INFO_Y_START + 22)
 local equippedValue = makeInfoRow("Equipped", "Holding", INFO_Y_START + 44)
+local achieveValue  = makeInfoRow("Achievements", "Achievements", INFO_Y_START + 66)
 
 -- ── TRADE button ───────────────────────────────────────────────────────
 
@@ -465,6 +466,16 @@ inspectDataRemote.OnClientEvent:Connect(function(data)
 		equippedValue.Text = if def then def.displayName else itemId
 	else
 		equippedValue.Text = "Nothing"
+	end
+
+	-- Achievements row
+	local achCount = data.achievementCount or 0
+	local achTotal = data.achievementTotal or 53
+	local achRecent = data.recentAchievement
+	if achRecent then
+		achieveValue.Text = achCount .. "/" .. achTotal .. " \u{2014} " .. achRecent
+	else
+		achieveValue.Text = achCount .. "/" .. achTotal
 	end
 
 	panel.Visible = true

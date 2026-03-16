@@ -11,7 +11,8 @@ src/
 │   ├── CraftingConfig.luau         -- Hand-craft recipes (station="hand")
 │   ├── CookingConfig.luau          -- Campfire cooking recipes (raw → cooked)
 │   ├── AssetIds.luau               -- rbxassetid:// mappings for images and sounds
-│   └── InventoryTypes.luau         -- Shared type definitions
+│   ├── InventoryTypes.luau         -- Shared type definitions
+│   └── AchievementConfig.luau      -- 53 achievements, counters, event mappings
 │
 ├── ServerScriptService/            -- Server-only scripts
 │   ├── PlayerStateService.server.luau    -- Player lifecycle, energy, sprint, survival stats, DataStore
@@ -21,8 +22,9 @@ src/
 │   ├── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
 │   ├── TradingService.server.luau        -- Player-to-player trading
 │   ├── PlayerInspectService.server.luau  -- Player inspect: profile data on request
-│   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher
-│   └── EventBridgeWorker.server.luau     -- Flush loop + init for EventBridge
+│   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher (+ onFire hook)
+│   ├── EventBridgeWorker.server.luau     -- Flush loop + init for EventBridge
+│   └── AchievementService.server.luau    -- Achievement tracking, counters, unlocks, login streaks
 │
 ├── StarterPlayer/StarterPlayerScripts/   -- Client scripts
 │   ├── HudController.client.luau         -- HUD rendering, hotbar display, campfire cooking UI
@@ -31,7 +33,8 @@ src/
 │   ├── GatherController.client.luau      -- Hit-to-harvest feedback (shake, sound, animation, floating text)
 │   ├── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
 │   ├── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
-│   └── BoneTracker.client.luau          -- Tracks hand bones for all characters (local + remote)
+│   ├── BoneTracker.client.luau          -- Tracks hand bones for all characters (local + remote)
+│   └── AchievementToastController.client.luau -- Achievement unlock toast notifications
 │
 assets/
 ├── raw/
@@ -428,10 +431,36 @@ Pushes game events to the external website/Discord bot via HttpService.
 | `bedroll_placed_near_others` | InventoryService | Batched | nearbyBedrolls |
 | `starvation_close_call` | PlayerStateService | Batched | stat (hunger/thirst) |
 | `campfire_session` | PlayerStateService | Batched | nearbyPlayers |
+| `achievement_unlocked` | AchievementService | Immediate | key, name, icon, category, counterValue, totalUnlocked, totalAchievements |
 
 **PvP damage tagging:** Weapon scripts should fire `ServerBindables.PvPDamageTag:Fire(victimPlayer, attackerPlayer)` when dealing damage. This tags the victim so `player_death` includes killer info.
 
 **cook_complete attribution:** Fires for the player who last added raw food to the campfire input slot (`lastAddedBy`). Falls back to the campfire placer if the adder has left the server.
+
+---
+
+## Achievement System
+
+53 achievements across 17 categories tracked in-game. The game is the single source of truth — the web/Discord listens for `achievement_unlocked` events.
+
+**Server (`AchievementService.server.luau`):**
+- Registers `EventBridge.onFire` hook to auto-increment counters from existing game events (no changes to source scripts needed)
+- Checks all achievements sharing a counter whenever it changes; awards unlocks at threshold
+- Fires `AchievementUnlocked` RemoteEvent to client (toast) + `EventBridge.fire("achievement_unlocked")` to web
+- Login streak: compares UTC date on join. Consecutive day → increment, gap → reset to 1
+- Playtime: 60s tick loop increments `playtime_total` for all online players
+- Credits peak: watches `Credits` attribute changes, stores highest-ever value
+- BindableFunctions (`AchievementLoad`/`AchievementSave`/`AchievementGetState`) for PlayerStateService integration
+
+**Config (`AchievementConfig.luau`):** Shared between server and client. Defines all achievements (key, name, icon, category, counter, threshold), counter names, event-to-counter mappings with conditions, and lookup tables (ByCounter, ByKey).
+
+**DataStore (profile v6):** `achievements = { counters = {}, unlocked = { key → timestamp }, loginStreak = { lastLoginDate, currentStreak, longestStreak } }`. ~2-3KB added per profile.
+
+**Client toast (`AchievementToastController.client.luau`):** Gold-accented 300×70px frame slides in from top-right on unlock, holds 4s, fades out. Queue system for multiple unlocks.
+
+**Inventory ACHIEVEMENTS tab:** 4th tab in InventoryController with category filter bar and scrollable grid of 53 achievement cards showing icon, name, progress (e.g. "5/10"), and green check for unlocked.
+
+**Inspect panel:** Shows "X/53 — Most Recent Achievement" row on other players' inspect cards.
 
 ---
 

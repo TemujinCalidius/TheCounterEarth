@@ -124,6 +124,7 @@ return {
 			"trade_complete",
 			"player_join",
 			"player_leave",
+			"achievement_unlocked",
 		},
 	},
 }

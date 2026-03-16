@@ -19,7 +19,8 @@ local UserInputService      = game:GetService("UserInputService")
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local CraftingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CraftingConfig"))
-local CookingConfig  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
+local CookingConfig      = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
+local AchievementConfig  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AchievementConfig"))
 
 -- Mobile / touch detection helpers
 local function isClickOrTap(input)
@@ -63,6 +64,9 @@ local tradeUpdateOfferRemote = remotes:WaitForChild("TradeUpdateOffer")  :: Remo
 local tradeInitiateRemote    = remotes:WaitForChild("TradeInitiate")     :: RemoteEvent
 local craftFailedRemote      = remotes:WaitForChild("CraftFailed")       :: RemoteEvent
 local saveUIPosRemote        = remotes:WaitForChild("SaveUIPosition")    :: RemoteEvent
+local achieveSyncRemote      = remotes:WaitForChild("AchievementSync")    :: RemoteEvent
+local achieveRequestRemote   = remotes:WaitForChild("AchievementRequest") :: RemoteEvent
+local achieveUnlockedRemote  = remotes:WaitForChild("AchievementUnlocked") :: RemoteEvent
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -304,20 +308,21 @@ tabBar.Parent             = panel
 
 local function makeTabBtn(label: string, xOff: number): TextButton
 	local b = makeButton(tabBar, {
-		Size             = UDim2.new(0, 100, 1, 0),
+		Size             = UDim2.new(0, 90, 1, 0),
 		Position         = UDim2.new(0, xOff, 0, 0),
 		BackgroundColor3 = BG2,
 		Text             = label,
 		TextColor3       = MUTED,
-		TextSize         = 12,
+		TextSize         = 11,
 	})
 	addCorner(b, 6)
 	return b
 end
 
 local itemsTabBtn = makeTabBtn("ITEMS",     0)
-local craftTabBtn = makeTabBtn("RECIPES", 104)
-local charTabBtn  = makeTabBtn("CHARACTER", 208)
+local craftTabBtn = makeTabBtn("RECIPES",  95)
+local charTabBtn  = makeTabBtn("CHAR",    190)
+local achTabBtn   = makeTabBtn("ACHIEVE", 285)
 
 -- Content area (520 x 350 px usable)
 local content = Instance.new("Frame")
@@ -1230,6 +1235,215 @@ for i, stat in ipairs(STAT_DEFS) do
 	statRefs[stat.id] = { valLabel = valLabel }
 end
 
+-- ── ACHIEVEMENTS PANE ─────────────────────────────────────────────────────
+
+local GOLD = Color3.fromRGB(255, 200, 60)
+
+local achPane = Instance.new("Frame")
+achPane.Size               = UDim2.new(1, 0, 1, 0)
+achPane.BackgroundTransparency = 1
+achPane.Visible            = false
+achPane.Parent             = content
+
+-- Achievement state (synced from server)
+local achCounters: { [string]: number } = {}
+local achUnlocked: { [string]: number } = {}
+local achTotalCount = AchievementConfig.TotalCount
+
+-- Summary header
+local achSummary = makeLabel(achPane, {
+	Size           = UDim2.new(1, 0, 0, 20),
+	Position       = UDim2.new(0, 0, 0, 0),
+	Text           = "0/" .. achTotalCount .. " Achievements Unlocked",
+	TextColor3     = GOLD,
+	Font           = FONTB,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextSize       = 12,
+})
+
+-- Category filter bar
+local achFilterBar = Instance.new("ScrollingFrame")
+achFilterBar.Size               = UDim2.new(1, 0, 0, 26)
+achFilterBar.Position           = UDim2.new(0, 0, 0, 22)
+achFilterBar.BackgroundTransparency = 1
+achFilterBar.ScrollBarThickness = 0
+achFilterBar.ScrollingDirection = Enum.ScrollingDirection.X
+achFilterBar.AutomaticCanvasSize = Enum.AutomaticSize.X
+achFilterBar.CanvasSize         = UDim2.new(0, 0, 0, 0)
+achFilterBar.Parent             = achPane
+
+local achFilterLayout = Instance.new("UIListLayout")
+achFilterLayout.FillDirection = Enum.FillDirection.Horizontal
+achFilterLayout.Padding       = UDim.new(0, 4)
+achFilterLayout.Parent        = achFilterBar
+
+local achFilterCategory = "ALL"
+local achFilterButtons: { TextButton } = {}
+
+-- Scrolling grid of achievement cards
+local achScroll = Instance.new("ScrollingFrame")
+achScroll.Size               = UDim2.new(1, 0, 1, -54)
+achScroll.Position           = UDim2.new(0, 0, 0, 52)
+achScroll.BackgroundTransparency = 1
+achScroll.ScrollBarThickness = 4
+achScroll.ScrollBarImageColor3 = MUTED
+achScroll.CanvasSize         = UDim2.new(0, 0, 0, 0)
+achScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+achScroll.Parent             = achPane
+
+local achGrid = Instance.new("UIGridLayout")
+achGrid.CellSize     = UDim2.new(0, 96, 0, 90)
+achGrid.CellPadding  = UDim2.new(0, 6, 0, 6)
+achGrid.SortOrder    = Enum.SortOrder.LayoutOrder
+achGrid.Parent       = achScroll
+
+-- Build filter buttons
+local allCategories = { "ALL" }
+for _, cat in ipairs(AchievementConfig.Categories) do
+	table.insert(allCategories, cat)
+end
+
+for i, cat in ipairs(allCategories) do
+	local btn = Instance.new("TextButton")
+	btn.Size             = UDim2.new(0, 0, 1, 0)
+	btn.AutomaticSize    = Enum.AutomaticSize.X
+	btn.BackgroundColor3 = if cat == "ALL" then BG3 else BG2
+	btn.BorderSizePixel  = 0
+	btn.Text             = "  " .. cat .. "  "
+	btn.TextColor3       = if cat == "ALL" then TEXT else MUTED
+	btn.TextSize         = 10
+	btn.Font             = FONTB
+	btn.LayoutOrder      = i
+	btn.Parent           = achFilterBar
+	addCorner(btn, 4)
+	table.insert(achFilterButtons, btn)
+end
+
+-- Build achievement card frames (once, then show/hide on filter)
+type AchCard = { frame: Frame, category: string, key: string, iconLabel: TextLabel, nameLabel: TextLabel, progressLabel: TextLabel, checkLabel: TextLabel }
+local achCards: { AchCard } = {}
+
+for i, ach in ipairs(AchievementConfig.Achievements) do
+	local card = Instance.new("Frame")
+	card.Size             = UDim2.new(0, 96, 0, 90)
+	card.BackgroundColor3 = BG3
+	card.BorderSizePixel  = 0
+	card.LayoutOrder      = i
+	card.Parent           = achScroll
+	addCorner(card, 6)
+
+	local iconLabel = makeLabel(card, {
+		Size     = UDim2.new(1, 0, 0, 32),
+		Position = UDim2.new(0, 0, 0, 6),
+		Text     = ach.icon,
+		TextSize = 24,
+	})
+
+	local nameLabel = makeLabel(card, {
+		Size           = UDim2.new(1, -6, 0, 24),
+		Position       = UDim2.new(0, 3, 0, 38),
+		Text           = ach.name,
+		TextColor3     = TEXT,
+		TextSize       = 9,
+		Font           = FONTB,
+		TextWrapped    = true,
+		TextTruncate   = Enum.TextTruncate.AtEnd,
+	})
+
+	local progressLabel = makeLabel(card, {
+		Size           = UDim2.new(1, 0, 0, 14),
+		Position       = UDim2.new(0, 0, 1, -18),
+		Text           = "0/" .. ach.threshold,
+		TextColor3     = MUTED,
+		TextSize       = 9,
+	})
+
+	local checkLabel = makeLabel(card, {
+		Size           = UDim2.new(0, 20, 0, 20),
+		Position       = UDim2.new(1, -22, 0, 2),
+		Text           = "\u{2714}",
+		TextColor3     = GOLD,
+		TextSize       = 14,
+		Font           = FONTB,
+	})
+	checkLabel.Visible = false
+
+	table.insert(achCards, {
+		frame = card,
+		category = ach.category,
+		key = ach.key,
+		iconLabel = iconLabel,
+		nameLabel = nameLabel,
+		progressLabel = progressLabel,
+		checkLabel = checkLabel,
+	})
+end
+
+local function refreshAchievements()
+	local unlockedCount = 0
+	for _ in pairs(achUnlocked) do unlockedCount += 1 end
+	achSummary.Text = unlockedCount .. "/" .. achTotalCount .. " Achievements Unlocked"
+
+	for i, card in ipairs(achCards) do
+		local ach = AchievementConfig.Achievements[i]
+		local isUnlocked = achUnlocked[ach.key] ~= nil
+		local counter = achCounters[ach.counter] or 0
+		local progress = math.min(counter, ach.threshold)
+
+		-- Filter visibility
+		local matchesFilter = achFilterCategory == "ALL" or card.category == achFilterCategory
+		card.frame.Visible = matchesFilter
+
+		-- Update progress
+		card.progressLabel.Text = progress .. "/" .. ach.threshold
+
+		-- Unlocked state
+		card.checkLabel.Visible = isUnlocked
+		if isUnlocked then
+			card.frame.BackgroundColor3 = Color3.fromRGB(32, 42, 36)
+			card.progressLabel.TextColor3 = GOLD
+			card.nameLabel.TextColor3 = TEXT
+			card.iconLabel.TextTransparency = 0
+		else
+			card.frame.BackgroundColor3 = BG3
+			card.progressLabel.TextColor3 = MUTED
+			card.nameLabel.TextColor3 = MUTED
+			card.iconLabel.TextTransparency = 0.5
+		end
+	end
+end
+
+-- Filter button handlers
+for idx, btn in ipairs(achFilterButtons) do
+	local cat = allCategories[idx]
+	btn.Activated:Connect(function()
+		achFilterCategory = cat
+		for j, b in ipairs(achFilterButtons) do
+			local c = allCategories[j]
+			b.BackgroundColor3 = if c == achFilterCategory then BG3 else BG2
+			b.TextColor3       = if c == achFilterCategory then TEXT else MUTED
+		end
+		refreshAchievements()
+	end)
+end
+
+-- Listen for achievement sync from server
+achieveSyncRemote.OnClientEvent:Connect(function(data)
+	if type(data) ~= "table" then return end
+	if type(data.counters) == "table" then achCounters = data.counters end
+	if type(data.unlocked) == "table" then achUnlocked = data.unlocked end
+	refreshAchievements()
+end)
+
+-- Listen for individual unlocks (update local state immediately)
+achieveUnlockedRemote.OnClientEvent:Connect(function(data)
+	if type(data) ~= "table" then return end
+	if data.key then
+		achUnlocked[data.key] = os.time()
+		refreshAchievements()
+	end
+end)
+
 -- ── State ──────────────────────────────────────────────────────────────────
 
 local isOpen       = false
@@ -1989,13 +2203,20 @@ local function setTab(tab: string)
 	itemsPane.Visible      = tab == "items"
 	craftPane.Visible      = tab == "craft"
 	charPane.Visible       = tab == "char"
-	itemsTabBtn.TextColor3 = tab == "items" and TEXT or MUTED
-	craftTabBtn.TextColor3 = tab == "craft" and TEXT or MUTED
-	charTabBtn.TextColor3  = tab == "char"  and TEXT or MUTED
-	itemsTabBtn.BackgroundColor3 = tab == "items" and BG3 or BG2
-	craftTabBtn.BackgroundColor3 = tab == "craft" and BG3 or BG2
-	charTabBtn.BackgroundColor3  = tab == "char"  and BG3 or BG2
+	achPane.Visible        = tab == "achieve"
+	itemsTabBtn.TextColor3 = tab == "items"   and TEXT or MUTED
+	craftTabBtn.TextColor3 = tab == "craft"   and TEXT or MUTED
+	charTabBtn.TextColor3  = tab == "char"    and TEXT or MUTED
+	achTabBtn.TextColor3   = tab == "achieve" and TEXT or MUTED
+	itemsTabBtn.BackgroundColor3 = tab == "items"   and BG3 or BG2
+	craftTabBtn.BackgroundColor3 = tab == "craft"   and BG3 or BG2
+	charTabBtn.BackgroundColor3  = tab == "char"    and BG3 or BG2
+	achTabBtn.BackgroundColor3   = tab == "achieve" and BG3 or BG2
 	if tab == "char" then refreshCharacter() end
+	if tab == "achieve" then
+		achieveRequestRemote:FireServer()
+		refreshAchievements()
+	end
 end
 
 setTab("items")
@@ -2003,6 +2224,7 @@ setTab("items")
 itemsTabBtn.Activated:Connect(function() setTab("items") end)
 craftTabBtn.Activated:Connect(function() setTab("craft") end)
 charTabBtn.Activated:Connect(function() setTab("char") end)
+achTabBtn.Activated:Connect(function() setTab("achieve") end)
 
 -- ── Open / close ──────────────────────────────────────────────────────────
 

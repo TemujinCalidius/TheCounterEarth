@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.15.0] - in-game achievement system (53 achievements)
+
+### Added
+- **Achievement system** — 53 achievements across 17 categories (Deaths, Survival, Playtime, Trading, Harvesting, Crafting, Cooking, Wealth, Login Streaks, Tool Breaking, Close Calls, Campfire Sessions, Spoilage, Bedroll, Consumption, PvP Kills, Death Causes)
+- **AchievementConfig** — shared config defining all achievements, counter thresholds, and EventBridge-to-counter mappings
+- **AchievementService** — server-side tracker: listens to EventBridge events via `onFire` hook, auto-increments counters, checks thresholds, awards unlocks. Handles login streaks, playtime ticks, and credits peak tracking
+- **Achievement toast notifications** — gold-accented toast slides in from top-right on unlock (icon, name, category), holds 4s, fades out. Queued for multiple unlocks
+- **ACHIEVEMENTS tab** in inventory panel — 4th tab showing scrollable grid of all 53 achievements with category filter bar, progress counters, and unlocked state
+- **Achievement count on inspect panel** — inspecting another player shows "X/53 — Most Recent Achievement" row
+- **`achievement_unlocked` EventBridge event** — sent immediately to web/Discord on each unlock with key, name, icon, category, counterValue, totalUnlocked, totalAchievements. Game is now the single source of truth for achievements
+- **EventBridge `onFire` hook** — local listener system so server modules (like AchievementService) can react to game events without modifying source scripts
+- **Login streak tracking** — consecutive UTC-day login detection with streak counter, drives streak_3/streak_7/streak_30 achievements
+
+### Changed
+- **DataStore profile version** bumped from v5 to v6 — adds `achievements` table (counters, unlocked timestamps, loginStreak). Backwards-compatible: missing field defaults to empty
+- **Inventory tab buttons** resized from 100px to 90px to fit 4 tabs (ITEMS, RECIPES, CHAR, ACHIEVE)
+- **Inspect panel height** increased from 340 to 364px to accommodate achievements row
+
+---
+
 ## [0.14.0] - knife fix, trade quantity picker, bridge enhancements, cooking fix
 
 ### Fixed

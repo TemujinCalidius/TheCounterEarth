@@ -64,6 +64,14 @@ local function sendPayload(payload: { [string]: any })
 	end
 end
 
+-- ── Local listeners (e.g. AchievementService) ──────────────────────────
+-- These fire regardless of HTTP enabled state so in-game systems always work.
+local listeners: { (string, Player?, { [string]: any }) -> () } = {}
+
+function EventBridge.onFire(callback: (string, Player?, { [string]: any }) -> ())
+	table.insert(listeners, callback)
+end
+
 -- ── Public API ────────────────────────────────────────────────────────
 
 --- Call once from EventBridgeWorker to read the API key and finalize setup.
@@ -90,6 +98,12 @@ end
 --- @param player Player? — the player involved (nil for server-wide events)
 --- @param data table? — event-specific payload fields
 function EventBridge.fire(eventType: string, player: Player?, data: { [string]: any }?)
+	-- Notify local listeners (achievements, etc.) even if HTTP is disabled
+	local safeData = data or {}
+	for _, cb in ipairs(listeners) do
+		task.spawn(cb, eventType, player, safeData)
+	end
+
 	if not enabled or apiKey == "" then return end
 
 	local event = {

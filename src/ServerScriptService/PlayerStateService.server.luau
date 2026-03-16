@@ -10,7 +10,7 @@ local StatsConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChil
 local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local EventBridge  = require(script.Parent:WaitForChild("EventBridge"))
 
-local PROFILE_VERSION = 5
+local PROFILE_VERSION = 6
 local LEGACY_CREDITS_STORE_NAME = "CreditsV1"
 
 local useDataStore = (not RunService:IsStudio()) or Config.Credits.UseDataStoreInStudio
@@ -457,6 +457,7 @@ local function decodeProfile(raw: any): { [string]: any }?
 		lastPosition = lastPosition,
 		survivalSeconds = tonumber(raw.survivalSeconds) or 0,
 		uiPositions = if type(raw.uiPositions) == "table" then raw.uiPositions else {},
+		achievements = if type(raw.achievements) == "table" then raw.achievements else nil,
 	}
 end
 
@@ -871,6 +872,14 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 		lastPosition = lastPosition,
 		survivalSeconds = math.floor(state.survivalSeconds),
 		uiPositions = playerUIPositions[player] or {},
+		achievements = (function()
+			local achSave = bindablesFolder:FindFirstChild("AchievementSave")
+			if achSave and achSave:IsA("BindableFunction") then
+				local ok, result = pcall(achSave.Invoke, achSave, player)
+				if ok and type(result) == "table" then return result end
+			end
+			return nil
+		end)(),
 	}
 end
 
@@ -1180,6 +1189,12 @@ local function setupPlayer(player: Player)
 			playerUIPositions[player][panelName] = posStr
 			player:SetAttribute("_UIPos_" .. panelName, posStr)
 		end
+	end
+
+	-- Load achievements into AchievementService
+	local achLoad = bindablesFolder:FindFirstChild("AchievementLoad")
+	if achLoad and achLoad:IsA("BindableFunction") then
+		pcall(achLoad.Invoke, achLoad, player, profile.achievements)
 	end
 
 	writeInventoryAttributes(player, decodeInventory(profile.inventory))

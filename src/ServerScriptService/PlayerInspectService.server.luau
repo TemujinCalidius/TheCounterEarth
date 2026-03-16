@@ -9,8 +9,10 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
-local StatsConfig    = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
+local GameplayConfig    = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
+local StatsConfig       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
+local AchievementConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AchievementConfig"))
+local ServerStorage     = game:GetService("ServerStorage")
 
 local INTERACT_RANGE = GameplayConfig.Trading.InteractRange
 
@@ -142,6 +144,22 @@ inspectRequestRemote.OnServerEvent:Connect(function(player: Player, targetArg: a
 	if humanoid then
 		payload.health = math.floor(humanoid.Health)
 		payload.maxHealth = math.floor(humanoid.MaxHealth)
+	end
+
+	-- Achievement summary
+	local bindables = ServerStorage:FindFirstChild("ServerBindables")
+	local achGetState = bindables and bindables:FindFirstChild("AchievementGetState")
+	if achGetState and achGetState:IsA("BindableFunction") then
+		local ok, achData = pcall(achGetState.Invoke, achGetState, target)
+		if ok and type(achData) == "table" then
+			payload.achievementCount = achData.unlockedCount or 0
+			payload.achievementTotal = achData.totalCount or AchievementConfig.TotalCount
+			local recentKey = achData.mostRecentKey
+			if recentKey then
+				local ach = AchievementConfig.ByKey[recentKey]
+				payload.recentAchievement = ach and ach.name or nil
+			end
+		end
 	end
 
 	inspectDataRemote:FireClient(player, payload)
