@@ -29,6 +29,7 @@ local Workspace         = game:GetService("Workspace")
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
 local CraftingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CraftingConfig"))
+local EventBridge    = require(script.Parent:WaitForChild("EventBridge"))
 
 local BASE_MAX_WEIGHT: number   = (GameplayConfig.Inventory and GameplayConfig.Inventory.BasePocketWeight) or 5
 local BASE_POCKET_SLOTS: number = (GameplayConfig.Inventory and GameplayConfig.Inventory.PocketSlots) or 5
@@ -735,6 +736,8 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 		return
 	end
 
+	EventBridge.fire("harvest", player, { itemId = itemId, yield = yield })
+
 	-- Deduct node HP
 	local newHP = nodeHP - 1
 	targetModel:SetAttribute("_NodeHealth", newHP)
@@ -1109,6 +1112,8 @@ useItemRemote.OnServerEvent:Connect(function(player, rawItemId)
 	end
 	if next(payload) then consumeEffectEvent:Fire(player, payload) end
 
+	EventBridge.fire("item_consume", player, { itemId = itemId })
+
 	cleanOrphanedHotbarPins(player)
 end)
 
@@ -1184,6 +1189,13 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		removeQty(player, ing.itemId, ing.qty)
 	end
 	addQty(player, recipe.output.itemId, recipe.output.qty)
+
+	EventBridge.fire("craft_item", player, {
+		recipeId = recipeId,
+		outputItemId = recipe.output.itemId,
+		outputQty = recipe.output.qty,
+	})
+
 	cleanOrphanedHotbarPins(player)
 end)
 

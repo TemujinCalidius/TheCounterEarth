@@ -20,7 +20,9 @@ src/
 │   ├── ToolInventoryService.server.luau  -- World tool pickup, equip/unequip, tool templates
 │   ├── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
 │   ├── TradingService.server.luau        -- Player-to-player trading
-│   └── PlayerInspectService.server.luau  -- Player inspect: profile data on request
+│   ├── PlayerInspectService.server.luau  -- Player inspect: profile data on request
+│   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher
+│   └── EventBridgeWorker.server.luau     -- Flush loop + init for EventBridge
 │
 ├── StarterPlayer/StarterPlayerScripts/   -- Client scripts
 │   ├── HudController.client.luau         -- HUD rendering, hotbar display, campfire cooking UI
@@ -368,6 +370,38 @@ All gameplay values live in `GameplayConfig.luau` — never hardcoded in scripts
 | Bedroll | RequiredCampfireRadius=15, KeepCampfireAliveRadius=15 |
 
 Survival stat values live in `StatsConfig.luau` (hunger, thirst, fatigue drain rates, empty penalties, etc.).
+
+---
+
+## External Event Bridge (EventBridge)
+
+Pushes game events to the external website/Discord bot via HttpService.
+
+**Module (`EventBridge.luau`):**
+- `EventBridge.fire(eventType, player?, data?)` — fire-and-forget from any server script
+- Immediate events (death, trade, join, leave) send instantly via `task.spawn`
+- Batched events (craft, harvest, consume) queue and flush every 5s
+- All HTTP calls wrapped in `pcall` — failures never break gameplay
+- API key read from `ServerStorage.Secrets.WebhookApiKey` (not in git)
+- Disabled in Studio by default (`EnableInStudio = false`)
+
+**Worker (`EventBridgeWorker.server.luau`):**
+- Calls `EventBridge.init()`, runs periodic flush loop, `BindToClose` final flush
+
+**Config:** `GameplayConfig.EventBridge` — endpoint URL, flush interval, batch sizes, immediate event list
+
+**Payload format:** JSON POST to endpoint with `X-Api-Key` header. Envelope contains `serverJobId`, `placeId`, `timestamp`, and `events` array.
+
+**Events fired:**
+| Event | Source Script | Priority |
+|---|---|---|
+| `player_join` | PlayerStateService | Immediate |
+| `player_leave` | PlayerStateService | Immediate |
+| `player_death` | PlayerStateService | Immediate |
+| `trade_complete` | TradingService | Immediate |
+| `craft_item` | InventoryService | Batched |
+| `harvest` | InventoryService | Batched |
+| `item_consume` | InventoryService | Batched |
 
 ---
 

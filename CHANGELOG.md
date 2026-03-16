@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.13.1] - HTTP event bridge (game → website/Discord)
+
+### Added
+- **EventBridge module** — centralized HTTP event dispatcher pushes game events to `thecounterearth.com/api/game/events` for Discord bot integration
+- **Immediate events**: `player_join`, `player_leave`, `player_death`, `trade_complete` — sent instantly
+- **Batched events**: `craft_item`, `harvest`, `item_consume` — queued and flushed every 5 seconds
+- Fire-and-forget design: all HTTP calls pcall-wrapped, failures never break gameplay
+- API key stored in `ServerStorage.Secrets.WebhookApiKey` (Studio-only, not in git)
+- Disabled in Studio by default (`EventBridge.EnableInStudio`)
+- Config in `GameplayConfig.EventBridge` (endpoint URL, flush interval, batch sizes)
+
+---
+
 ## [0.13.0] - player inspect screen, draggable windows, crafting fix
 
 ### Added

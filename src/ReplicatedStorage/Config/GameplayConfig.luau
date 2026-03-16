@@ -111,4 +111,19 @@ return {
 			StopThreshold  = 1.5,  -- 150%
 		},
 	},
+
+	EventBridge = {
+		Enabled = true,
+		EnableInStudio = true,
+		EndpointUrl = "https://thecounterearth.com/api/game/events",
+		FlushIntervalSeconds = 5,
+		MaxBatchSize = 25,
+		MaxQueueSize = 200,
+		ImmediateEventTypes = {
+			"player_death",
+			"trade_complete",
+			"player_join",
+			"player_leave",
+		},
+	},
 }

@@ -13,6 +13,7 @@ local ServerStorage     = game:GetService("ServerStorage")
 
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
+local EventBridge    = require(script.Parent:WaitForChild("EventBridge"))
 
 local TradingConfig = GameplayConfig.Trading or {}
 local INTERACT_RANGE       = TradingConfig.InteractRange or 15
@@ -213,6 +214,13 @@ local function executeTrade(session: TradeSession)
 	activeTrades[session.playerB] = nil
 	tradeStateRemote:FireClient(session.playerA, nil)
 	tradeStateRemote:FireClient(session.playerB, nil)
+
+	EventBridge.fire("trade_complete", session.playerA, {
+		partnerUserId = session.playerB.UserId,
+		partnerDisplayName = session.playerB.DisplayName,
+		offerA = session.offerA,
+		offerB = session.offerB,
+	})
 end
 
 -- ── Remote: TradeInitiate (drag-to-player) ──────────────────────────────

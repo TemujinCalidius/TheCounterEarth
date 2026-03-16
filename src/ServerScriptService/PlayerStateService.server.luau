@@ -8,6 +8,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("Ga
 local StatsConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
 
 local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+local EventBridge  = require(script.Parent:WaitForChild("EventBridge"))
 
 local PROFILE_VERSION = 5
 local LEGACY_CREDITS_STORE_NAME = "CreditsV1"
@@ -1037,6 +1038,11 @@ local function setupCharacter(player: Player, character: Model)
 		-- Snapshot bedroll for respawn teleport
 		state.deathRespawnCFrame = state.bedrollSpawnCFrame
 		state.profileDirty = true
+
+		EventBridge.fire("player_death", player, {
+			survivalSeconds = state.survivalSeconds,
+			position = deathCFrame and { x = deathCFrame.X, y = deathCFrame.Y, z = deathCFrame.Z } or nil,
+		})
 	end))
 
 	-- Reattach particle effects if player spawns while still bleeding/poisoned
@@ -1242,6 +1248,10 @@ local function setupPlayer(player: Player)
 	if player.Character then
 		setupCharacter(player, player.Character)
 	end
+
+	EventBridge.fire("player_join", player, {
+		playerCount = #Players:GetPlayers(),
+	})
 end
 
 local function cleanupPlayer(player: Player)
@@ -1650,6 +1660,11 @@ saveUIPosRemote.OnServerEvent:Connect(function(player: Player, panelName: any, p
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	local state = playerStates[player]
+	EventBridge.fire("player_leave", player, {
+		survivalSeconds = state and state.survivalSeconds or 0,
+		playerCount = #Players:GetPlayers() - 1,
+	})
 	saveProfile(player, true)
 	cleanupPlayer(player)
 end)
