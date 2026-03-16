@@ -81,6 +81,20 @@ local applyStatusEvent = Instance.new("BindableEvent")
 applyStatusEvent.Name = "ApplyStatusEffect"
 applyStatusEvent.Parent = bindablesFolder
 
+-- PvP damage tagging: weapon scripts fire this when dealing damage to another player.
+-- Args: (victimPlayer: Player, attackerPlayer: Player)
+local pvpDamageEvent = Instance.new("BindableEvent")
+pvpDamageEvent.Name = "PvPDamageTag"
+pvpDamageEvent.Parent = bindablesFolder
+
+pvpDamageEvent.Event:Connect(function(victim: Player, attacker: Player)
+	local state = playerStates[victim]
+	if not state then return end
+	state.lastDamageCause = "pvp"
+	state.lastDamageByUserId = attacker.UserId
+	state.lastDamageByName = attacker.DisplayName
+end)
+
 type PlayerState = {
 	energy: number,
 	savedHealth: number,
@@ -110,6 +124,9 @@ type PlayerState = {
 	lastPosition: { x: number, y: number, z: number }?,  -- saved logout position for relog teleport
 	survivalSeconds: number,       -- total time alive (resets on death, persists across sessions)
 	survivalLastTick: number,      -- os.clock() of last survival time accumulation
+	lastDamageCause: string?,      -- last source of damage for death cause tracking (starvation/dehydration/bleeding/poison/pvp)
+	lastDamageByUserId: number?,   -- UserId of last player who dealt damage (for PvP kill tracking)
+	lastDamageByName: string?,     -- DisplayName of last player who dealt damage
 }
 
 local playerStates: { [Player]: PlayerState } = {}
@@ -1039,10 +1056,21 @@ local function setupCharacter(player: Player, character: Model)
 		state.deathRespawnCFrame = state.bedrollSpawnCFrame
 		state.profileDirty = true
 
-		EventBridge.fire("player_death", player, {
+		local deathData: { [string]: any } = {
 			survivalSeconds = state.survivalSeconds,
 			position = deathCFrame and { x = deathCFrame.X, y = deathCFrame.Y, z = deathCFrame.Z } or nil,
-		})
+			cause = state.lastDamageCause or "unknown",
+		}
+		if state.lastDamageByUserId then
+			deathData.killerUserId = state.lastDamageByUserId
+			deathData.killerName = state.lastDamageByName
+		end
+		EventBridge.fire("player_death", player, deathData)
+
+		-- Reset damage tracking
+		state.lastDamageCause = nil
+		state.lastDamageByUserId = nil
+		state.lastDamageByName = nil
 	end))
 
 	-- Reattach particle effects if player spawns while still bleeding/poisoned
@@ -1390,6 +1418,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		setHunger(player, state, state.hunger - hungerDrain)
 		if state.hunger <= 0 and humanoid.Health > 0 then
 			humanoid:TakeDamage(StatsConfig.Hunger.OnEmpty.HealthDrainPerSecond * deltaTime)
+			state.lastDamageCause = "starvation"
 		end
 
 		-- ── Thirst ────────────────────────────────────────────────────────────
@@ -1400,6 +1429,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		setThirst(player, state, state.thirst - thirstDrain)
 		if thirstEmpty and humanoid.Health > 0 then
 			humanoid:TakeDamage(StatsConfig.Thirst.OnEmpty.HealthDrainPerSecond * deltaTime)
+			state.lastDamageCause = "dehydration"
 		end
 
 		-- ── Fatigue ───────────────────────────────────────────────────────────
@@ -1442,6 +1472,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		-- Blood empty → heavy health drain
 		if state.blood <= 0 and humanoid.Health > 0 then
 			humanoid:TakeDamage(StatsConfig.Blood.OnEmpty.HealthDrainPerSecond * deltaTime)
+			state.lastDamageCause = "bleeding"
 		end
 
 		-- ── Poison bar ────────────────────────────────────────────────────────
@@ -1464,6 +1495,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		if state.poison > 0 and humanoid.Health > 0 then
 			local poisonRatio = state.poison / StatsConfig.Poison.Max
 			humanoid:TakeDamage(StatsConfig.Poison.HealthDrainPerSecondAtMax * poisonRatio * deltaTime)
+			state.lastDamageCause = "poison"
 		end
 
 		-- ── Campfire sit + regen ──────────────────────────────────────────────

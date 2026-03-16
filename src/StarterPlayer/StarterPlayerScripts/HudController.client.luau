@@ -1950,7 +1950,10 @@ local function buildCookingPanel()
 
 	-- Click handlers
 	inputBtn.MouseButton1Click:Connect(function()
-		if foodPickerFrame then
+		-- If input slot has items, take them back; otherwise toggle food picker
+		if activeCampfireModel and cookingState and cookingState.input and cookingState.input.qty > 0 then
+			campfireTakeRemote:FireServer(activeCampfireModel, "input", cookingState.input.qty)
+		elseif foodPickerFrame then
 			closeFoodPicker()
 		else
 			openFoodPicker()

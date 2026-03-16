@@ -215,11 +215,25 @@ local function executeTrade(session: TradeSession)
 	tradeStateRemote:FireClient(session.playerA, nil)
 	tradeStateRemote:FireClient(session.playerB, nil)
 
+	-- Enrich offers with item display names for the web/Discord bridge
+	local function enrichOffer(offer: { OfferEntry })
+		local enriched = {}
+		for _, entry in ipairs(offer) do
+			local def = ItemRegistry.get(entry.itemId)
+			table.insert(enriched, {
+				itemId = entry.itemId,
+				itemName = def and def.displayName or entry.itemId,
+				qty = entry.qty,
+			})
+		end
+		return enriched
+	end
+
 	EventBridge.fire("trade_complete", session.playerA, {
 		partnerUserId = session.playerB.UserId,
 		partnerDisplayName = session.playerB.DisplayName,
-		offerA = session.offerA,
-		offerB = session.offerB,
+		offerA = enrichOffer(session.offerA),
+		offerB = enrichOffer(session.offerB),
 	})
 end
 

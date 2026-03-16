@@ -30,7 +30,8 @@ src/
 │   ├── PlacementController.client.luau   -- Ghost preview placement mode for placeables
 │   ├── GatherController.client.luau      -- Hit-to-harvest feedback (shake, sound, animation, floating text)
 │   ├── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
-│   └── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
+│   ├── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
+│   └── BoneTracker.client.luau          -- Tracks hand bones for all characters (local + remote)
 │
 assets/
 ├── raw/
@@ -373,6 +374,20 @@ Survival stat values live in `StatsConfig.luau` (hunger, thirst, fatigue drain r
 
 ---
 
+## Custom Avatar & Tool Attachment
+
+Single-mesh Mixamo avatars need special handling for tool attachment since standard R15 Motor6Ds don't exist.
+
+**Server (`AvatarRigService.server.luau`):** Creates a `RightHandJoint` Motor6D between `HumanoidRootPart` and a transparent `RightHand` Part on each character spawn. This lets Roblox's built-in `humanoid:EquipTool()` work.
+
+**Client (`BoneTracker.client.luau`):** Runs on each client, tracking the `mixamorig:RightHand` bone inside the `Base_Avatar` MeshPart for ALL visible characters (local + remote). Updates `Motor6D.C0` every `PreRender` frame so equipped tools follow the hand animation with zero visual lag.
+
+**Client (`AvatarSetup.client.luau`):** Local-player-only setup: HipHeight adjustment and jump freefall suppression for single-mesh avatars.
+
+**Config:** `GameplayConfig.Avatar` — `HandBoneName`, `MeshPartName`, `HipHeight`
+
+---
+
 ## External Event Bridge (EventBridge)
 
 Pushes game events to the external website/Discord bot via HttpService.
@@ -380,9 +395,10 @@ Pushes game events to the external website/Discord bot via HttpService.
 **Module (`EventBridge.luau`):**
 - `EventBridge.fire(eventType, player?, data?)` — fire-and-forget from any server script
 - Immediate events (death, trade, join, leave) send instantly via `task.spawn`
-- Batched events (craft, harvest, consume) queue and flush every 5s
+- Batched events (craft, harvest, cook, consume) queue and flush every 5s
+- Events include `profession` and `xpGained` fields for the website's XP system
 - All HTTP calls wrapped in `pcall` — failures never break gameplay
-- API key read from `ServerStorage.Secrets.WebhookApiKey` (not in git)
+- API key read from `ServerStorage.Secrets.WebHookApiKey` (not in git)
 - Disabled in Studio by default (`EnableInStudio = false`)
 
 **Worker (`EventBridgeWorker.server.luau`):**
@@ -393,15 +409,18 @@ Pushes game events to the external website/Discord bot via HttpService.
 **Payload format:** JSON POST to endpoint with `X-Api-Key` header. Envelope contains `serverJobId`, `placeId`, `timestamp`, and `events` array.
 
 **Events fired:**
-| Event | Source Script | Priority |
-|---|---|---|
-| `player_join` | PlayerStateService | Immediate |
-| `player_leave` | PlayerStateService | Immediate |
-| `player_death` | PlayerStateService | Immediate |
-| `trade_complete` | TradingService | Immediate |
-| `craft_item` | InventoryService | Batched |
-| `harvest` | InventoryService | Batched |
-| `item_consume` | InventoryService | Batched |
+| Event | Source Script | Priority | Extra Fields |
+|---|---|---|---|
+| `player_join` | PlayerStateService | Immediate | playerCount |
+| `player_leave` | PlayerStateService | Immediate | survivalSeconds, playerCount |
+| `player_death` | PlayerStateService | Immediate | cause, killerUserId, killerName, survivalSeconds, position |
+| `trade_complete` | TradingService | Immediate | offerA/offerB with itemName, partnerUserId |
+| `craft_complete` | InventoryService | Batched | profession=crafting, itemId, itemName, xpGained |
+| `harvest_complete` | InventoryService | Batched | profession from item tags, itemId, itemName, xpGained |
+| `cook_complete` | CampfireService | Batched | profession=cooking, itemId, itemName, xpGained |
+| `item_consume` | InventoryService | Batched | itemId |
+
+**PvP damage tagging:** Weapon scripts should fire `ServerBindables.PvPDamageTag:Fire(victimPlayer, attackerPlayer)` when dealing damage. This tags the victim so `player_death` includes killer info.
 
 ---
 

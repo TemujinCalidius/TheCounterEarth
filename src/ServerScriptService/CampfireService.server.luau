@@ -13,6 +13,7 @@ local Workspace         = game:GetService("Workspace")
 local CookingConfig  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
+local EventBridge    = require(script.Parent:WaitForChild("EventBridge"))
 
 local CampfireConfig = GameplayConfig.Campfire or {}
 local MAX_INPUT_STACK  = CampfireConfig.MaxInputStack  or 10
@@ -265,6 +266,9 @@ campfireAddRemote.OnServerEvent:Connect(function(player, campfireModel, rawItemI
 	local qty = math.floor(tonumber(rawQty) or 0)
 	if qty < 1 then return end
 
+	-- Reject items that have no cooking recipe
+	if not CookingConfig.Recipes[itemId] then return end
+
 	local state = getOrCreateState(campfireModel)
 
 	-- Input slot: either empty, or must match the same item
@@ -378,6 +382,17 @@ RunService.Heartbeat:Connect(function(dt: number)
 				state.cookProgress = 0
 				state.cookDuration = 0
 			end
+
+			-- Fire cook_complete event for the web/Discord bridge
+			local placedBy = tonumber(model:GetAttribute("_PlacedBy"))
+			local cookPlayer: Player? = placedBy and Players:GetPlayerByUserId(placedBy) or nil
+			local cookOutputDef = ItemRegistry.get(recipe.output)
+			EventBridge.fire("cook_complete", cookPlayer, {
+				itemId = recipe.output,
+				itemName = cookOutputDef and cookOutputDef.displayName or recipe.output,
+				profession = "cooking",
+				xpGained = 10,
+			})
 
 			-- Broadcast on item completion
 			broadcastState(model, state)

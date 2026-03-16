@@ -510,6 +510,155 @@ local splitCancelBtn = makeButton(splitOverlay, {
 })
 addCorner(splitCancelBtn, 5)
 
+-- ── Trade quantity picker (centered modal) ──────────────────────────────────
+-- Shown when dragging a stack (qty > 1) onto the trade panel or another player.
+
+local tradeQtyCallback: ((qty: number) -> ())? = nil
+
+local tradeQtyOverlay = Instance.new("TextButton") -- full-screen click blocker
+tradeQtyOverlay.Size               = UDim2.new(1, 0, 1, 0)
+tradeQtyOverlay.BackgroundColor3   = Color3.new(0, 0, 0)
+tradeQtyOverlay.BackgroundTransparency = 0.5
+tradeQtyOverlay.BorderSizePixel    = 0
+tradeQtyOverlay.Text               = ""
+tradeQtyOverlay.AutoButtonColor    = false
+tradeQtyOverlay.ZIndex             = 50
+tradeQtyOverlay.Visible            = false
+tradeQtyOverlay.Parent             = gui
+
+local tradeQtyPopup = Instance.new("Frame")
+tradeQtyPopup.Size               = UDim2.new(0, 220, 0, 150)
+tradeQtyPopup.Position           = UDim2.new(0.5, -110, 0.5, -75)
+tradeQtyPopup.BackgroundColor3   = BG2
+tradeQtyPopup.BorderSizePixel    = 0
+tradeQtyPopup.ZIndex             = 51
+tradeQtyPopup.Parent             = tradeQtyOverlay
+addCorner(tradeQtyPopup, 8)
+
+local tradeQtyTitle = makeLabel(tradeQtyPopup, {
+	Size           = UDim2.new(1, -20, 0, 22),
+	Position       = UDim2.new(0, 10, 0, 10),
+	Text           = "How many to offer?",
+	Font           = FONTB,
+	TextSize       = 13,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex         = 52,
+})
+
+local tradeQtyItemLabel = makeLabel(tradeQtyPopup, {
+	Size           = UDim2.new(1, -20, 0, 18),
+	Position       = UDim2.new(0, 10, 0, 36),
+	Text           = "",
+	TextSize       = 11,
+	TextColor3     = MUTED,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex         = 52,
+})
+
+local tradeQtyMinus = makeButton(tradeQtyPopup, {
+	Size             = UDim2.new(0, 30, 0, 30),
+	Position         = UDim2.new(0.5, -65, 0, 60),
+	BackgroundColor3 = BG3,
+	Text             = "-",
+	TextSize         = 16,
+	ZIndex           = 52,
+})
+addCorner(tradeQtyMinus, 5)
+
+local tradeQtyBox = Instance.new("TextBox")
+tradeQtyBox.Size                  = UDim2.new(0, 60, 0, 30)
+tradeQtyBox.Position              = UDim2.new(0.5, -30, 0, 60)
+tradeQtyBox.BackgroundColor3      = BG3
+tradeQtyBox.BorderSizePixel       = 0
+tradeQtyBox.Font                  = FONTB
+tradeQtyBox.TextColor3            = TEXT
+tradeQtyBox.TextSize              = 14
+tradeQtyBox.PlaceholderText       = "1"
+tradeQtyBox.PlaceholderColor3     = MUTED
+tradeQtyBox.Text                  = ""
+tradeQtyBox.ClearTextOnFocus      = true
+tradeQtyBox.ZIndex                = 52
+tradeQtyBox.Parent                = tradeQtyPopup
+addCorner(tradeQtyBox, 5)
+
+local tradeQtyPlus = makeButton(tradeQtyPopup, {
+	Size             = UDim2.new(0, 30, 0, 30),
+	Position         = UDim2.new(0.5, 35, 0, 60),
+	BackgroundColor3 = BG3,
+	Text             = "+",
+	TextSize         = 16,
+	ZIndex           = 52,
+})
+addCorner(tradeQtyPlus, 5)
+
+local tradeQtyConfirm = makeButton(tradeQtyPopup, {
+	Size             = UDim2.new(0, 90, 0, 30),
+	Position         = UDim2.new(0.5, -95, 0, 105),
+	BackgroundColor3 = ACCENT,
+	Text             = "Offer",
+	TextSize         = 13,
+	ZIndex           = 52,
+})
+addCorner(tradeQtyConfirm, 5)
+
+local tradeQtyCancel = makeButton(tradeQtyPopup, {
+	Size             = UDim2.new(0, 90, 0, 30),
+	Position         = UDim2.new(0.5, 5, 0, 105),
+	BackgroundColor3 = Color3.fromRGB(55, 28, 28),
+	Text             = "Cancel",
+	TextColor3       = BAD,
+	TextSize         = 12,
+	ZIndex           = 52,
+})
+addCorner(tradeQtyCancel, 5)
+
+local tradeQtyMaxQty = 1
+
+local function hideTradeQtyPicker()
+	tradeQtyOverlay.Visible = false
+	tradeQtyCallback = nil
+end
+
+local function showTradeQtyPicker(itemId: string, maxQty: number, callback: (number) -> ())
+	local def = ItemRegistry[itemId]
+	local displayName = (def and def.displayName) or itemId
+	tradeQtyItemLabel.Text = displayName .. "  (max " .. tostring(maxQty) .. ")"
+	tradeQtyBox.Text = tostring(maxQty)
+	tradeQtyMaxQty = maxQty
+	tradeQtyCallback = callback
+	tradeQtyOverlay.Visible = true
+	tradeQtyBox:CaptureFocus()
+end
+
+local function clampTradeQty(v: number): number
+	return math.clamp(math.floor(v), 1, tradeQtyMaxQty)
+end
+
+tradeQtyMinus.Activated:Connect(function()
+	local cur = tonumber(tradeQtyBox.Text) or 1
+	tradeQtyBox.Text = tostring(clampTradeQty(cur - 1))
+end)
+
+tradeQtyPlus.Activated:Connect(function()
+	local cur = tonumber(tradeQtyBox.Text) or 1
+	tradeQtyBox.Text = tostring(clampTradeQty(cur + 1))
+end)
+
+tradeQtyConfirm.Activated:Connect(function()
+	local qty = clampTradeQty(tonumber(tradeQtyBox.Text) or 1)
+	local cb = tradeQtyCallback
+	hideTradeQtyPicker()
+	if cb then cb(qty) end
+end)
+
+tradeQtyCancel.Activated:Connect(function()
+	hideTradeQtyPicker()
+end)
+
+tradeQtyOverlay.Activated:Connect(function()
+	hideTradeQtyPicker()
+end)
+
 -- Weight bar
 local weightSection = Instance.new("Frame")
 weightSection.Size               = UDim2.new(1, 0, 0, 42)
@@ -1343,7 +1492,13 @@ UserInputService.InputEnded:Connect(function(input)
 						local itemId = getSlotItemId(fromSlot)
 						local qty    = getSlotQty(fromSlot)
 						if itemId ~= "" and qty > 0 then
-							tradeUpdateOfferRemote:FireServer(itemId, qty, "add")
+							if qty == 1 then
+								tradeUpdateOfferRemote:FireServer(itemId, 1, "add")
+							else
+								showTradeQtyPicker(itemId, qty, function(selectedQty)
+									tradeUpdateOfferRemote:FireServer(itemId, selectedQty, "add")
+								end)
+							end
 							pinned = true
 						end
 					end
@@ -1397,7 +1552,14 @@ UserInputService.InputEnded:Connect(function(input)
 					local itemId = getSlotItemId(fromSlot)
 					local qty    = getSlotQty(fromSlot)
 					if itemId ~= "" and qty > 0 then
-						tradeInitiateRemote:FireServer(targetPlayer.UserId, itemId, qty)
+						if qty == 1 then
+							tradeInitiateRemote:FireServer(targetPlayer.UserId, itemId, 1)
+						else
+							local capturedTarget = targetPlayer
+							showTradeQtyPicker(itemId, qty, function(selectedQty)
+								tradeInitiateRemote:FireServer(capturedTarget.UserId, itemId, selectedQty)
+							end)
+						end
 						pinned = true
 					end
 				end

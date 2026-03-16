@@ -1,6 +1,6 @@
 -- AvatarSetup.client.luau
--- Adjusts HipHeight, suppresses premature freefall, and tracks the RightHand
--- Part to the hand bone for single-mesh custom avatars.
+-- Adjusts HipHeight and suppresses premature freefall for single-mesh custom
+-- avatars. RightHand bone tracking is in BoneTracker.client.luau.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,16 +9,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local Config = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
 local AvatarCfg = Config.Avatar
-
--- Find a Bone by name inside a MeshPart's descendant hierarchy.
-local function findBone(meshPart: MeshPart, boneName: string): Bone?
-	for _, desc in meshPart:GetDescendants() do
-		if desc:IsA("Bone") and desc.Name == boneName then
-			return desc
-		end
-	end
-	return nil
-end
 
 local function onCharacterAdded(character: Model)
 	local humanoid = character:WaitForChild("Humanoid")
@@ -60,33 +50,8 @@ local function onCharacterAdded(character: Model)
 		end
 	end)
 
-	----------------------------------------------------------------
-	-- RightHand bone tracking (client-side, zero visual lag)
-	-- The server creates the Motor6D (AvatarRigService), we update its
-	-- C0 each frame before rendering so the tool follows the hand bone.
-	----------------------------------------------------------------
-	local meshPart = character:FindFirstChild(AvatarCfg.MeshPartName)
-	if not rootPart or not meshPart or not meshPart:IsA("MeshPart") then return end
-
-	local bone = findBone(meshPart, AvatarCfg.HandBoneName)
-	if not bone then return end
-
-	local rightHand = character:FindFirstChild("RightHand")
-	if not rightHand or not rightHand:IsA("BasePart") then return end
-
-	-- Wait for the server-created Motor6D
-	local motor = rightHand:WaitForChild("RightHandJoint", 5)
-	if not motor then return end
-
-	-- Update before each render frame — no visual lag
-	local conn: RBXScriptConnection
-	conn = RunService.PreRender:Connect(function()
-		if not rootPart.Parent or not bone.Parent or not rightHand.Parent then
-			conn:Disconnect()
-			return
-		end
-		motor.C0 = rootPart.CFrame:ToObjectSpace(bone.TransformedWorldCFrame)
-	end)
+	-- NOTE: RightHand bone tracking moved to BoneTracker.client.luau
+	-- (StarterPlayerScripts) so it runs for ALL characters, not just local.
 end
 
 if player.Character then

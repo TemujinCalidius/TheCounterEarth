@@ -736,7 +736,24 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 		return
 	end
 
-	EventBridge.fire("harvest", player, { itemId = itemId, yield = yield })
+	-- Derive profession from item tags for the web/Discord bridge
+	local harvestDef = ItemRegistry.get(itemId)
+	local profession = "foraging" -- default
+	if harvestDef then
+		for _, tag in ipairs(harvestDef.tags) do
+			if tag == "wood"  then profession = "woodcutting"; break end
+			if tag == "stone" then profession = "mining"; break end
+			if tag == "ore"   then profession = "mining"; break end
+			if tag == "reed"  then profession = "foraging"; break end
+		end
+	end
+	EventBridge.fire("harvest_complete", player, {
+		itemId = itemId,
+		itemName = harvestDef and harvestDef.displayName or itemId,
+		yield = yield,
+		profession = profession,
+		xpGained = yield * 5,
+	})
 
 	-- Deduct node HP
 	local newHP = nodeHP - 1
@@ -1190,10 +1207,14 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 	end
 	addQty(player, recipe.output.itemId, recipe.output.qty)
 
-	EventBridge.fire("craft_item", player, {
+	local craftDef = ItemRegistry.get(recipe.output.itemId)
+	EventBridge.fire("craft_complete", player, {
 		recipeId = recipeId,
-		outputItemId = recipe.output.itemId,
+		itemId = recipe.output.itemId,
+		itemName = craftDef and craftDef.displayName or recipe.output.itemId,
 		outputQty = recipe.output.qty,
+		profession = "crafting",
+		xpGained = (recipe.output.qty or 1) * 10,
 	})
 
 	cleanOrphanedHotbarPins(player)

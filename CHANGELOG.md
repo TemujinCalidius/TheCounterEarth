@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.14.0] - knife fix, trade quantity picker, bridge enhancements, cooking fix
+
+### Fixed
+- **Knife attachment desync for remote players** — equipped tools (knife, axe, etc.) appeared at shoulder/back on other players' screens. Root cause: hand-bone tracking only ran on the local player's client. New `BoneTracker.client.luau` (StarterPlayerScripts) now tracks hand bones for ALL characters visible to each client
+- **Cooked items stuck in campfire input slot** — placing a non-cookable item (e.g. cooked mushroom) in the campfire input made it permanently stuck. Server now rejects items with no cooking recipe. Clicking the input slot now retrieves items back to inventory
+
+### Added
+- **Trade quantity picker** — dragging a stack (qty > 1) onto the trade panel or another player now shows a quantity selector popup instead of offering the full stack. Single items skip the picker. Includes +/- buttons and manual entry
+- **cook_complete event** — campfire cooking now fires `cook_complete` to the EventBridge for Discord/website tracking
+- **Profession mapping for events** — `harvest_complete`, `craft_complete`, `cook_complete` events include `profession`, `xpGained`, and `itemName` fields for the website's profession XP system
+- **Death cause tracking** — `player_death` events now include `cause` field (starvation, dehydration, bleeding, poison, pvp, unknown) and `killerUserId`/`killerName` for PvP deaths
+- **PvP damage tagging** — `PvPDamageTag` BindableEvent in ServerBindables for weapon scripts to tag attackers (enables PvP kill feed on Discord)
+- **Trade item names** — `trade_complete` events now include `itemName` alongside `itemId` in offer arrays for richer Discord trade feed
+
+### Changed
+- **EventBridge event types renamed** to match web server schema: `harvest` → `harvest_complete`, `craft_item` → `craft_complete`
+- **EventBridge disabled in Studio** — `EnableInStudio` set back to `false` to prevent test events polluting live data
+- Removed verbose EventBridge HTTP logging (was temporary for debugging)
+
+### Website & Discord Integration (v0.3.0)
+- 35+ achievements system with Discord announcements
+- Milestone announcements (profession tier-ups, wealth changes, survival records, login streaks)
+- Login streak tracking with `/streak` command
+- PvP kill tracking and enhanced death feed
+- Live server status embed (auto-updates every 2 min)
+- Rich list: top 10 wealthiest players in hall-of-fame
+- Weekly recap with Player of the Week award
+- Trade watchlist alerts via `/watchlist` command
+- Enhanced leaderboards: PvP kills, login streak, best survival
+- Live "Currently in-game" indicator on website profiles
+
+---
+
 ## [0.13.2] - sprint fix for Windows + double-tap W
 
 ### Fixed

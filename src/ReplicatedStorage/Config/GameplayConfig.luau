@@ -114,7 +114,7 @@ return {
 
 	EventBridge = {
 		Enabled = true,
-		EnableInStudio = true,
+		EnableInStudio = false,
 		EndpointUrl = "https://thecounterearth.com/api/game/events",
 		FlushIntervalSeconds = 5,
 		MaxBatchSize = 25,

@@ -37,9 +37,9 @@ end
 
 local function makePlayerInfo(player: Player): { [string]: any }
 	return {
-		userId      = player.UserId,
-		displayName = player.DisplayName,
-		username    = player.Name,
+		robloxUserId = player.UserId,
+		displayName  = player.DisplayName,
+		username     = player.Name,
 	}
 end
 
