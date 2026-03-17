@@ -9,6 +9,7 @@ local UserInputService  = game:GetService("UserInputService")
 
 local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
 local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
+local TooltipModule  = require(ReplicatedStorage:WaitForChild("TooltipModule"))
 
 local player  = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -206,6 +207,50 @@ local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 12)
 panelCorner.Parent       = panel
 
+-- Panel visual depth: gradient + accent line + inner glow
+do
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(38, 42, 56)),
+		ColorSequenceKeypoint.new(0.35, Color3.fromRGB(22, 24, 34)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 13, 20)),
+	})
+	grad.Parent = panel
+
+	local accent = Instance.new("Frame")
+	accent.Name = "AccentLine"
+	accent.Size = UDim2.new(1, -24, 0, 2)
+	accent.Position = UDim2.new(0, 12, 0, 3)
+	accent.BackgroundColor3 = Color3.fromRGB(120, 180, 210)
+	accent.BackgroundTransparency = 0.4
+	accent.BorderSizePixel = 0
+	accent.ZIndex = 2
+	accent.Parent = panel
+	local acCorner = Instance.new("UICorner")
+	acCorner.CornerRadius = UDim.new(0, 1)
+	acCorner.Parent = accent
+
+	local glow = Instance.new("Frame")
+	glow.Name = "InnerGlow"
+	glow.Size = UDim2.new(1, 0, 0, 40)
+	glow.Position = UDim2.new(0, 0, 0, 0)
+	glow.BackgroundColor3 = Color3.fromRGB(120, 180, 210)
+	glow.BorderSizePixel = 0
+	glow.ZIndex = 0
+	glow.Parent = panel
+	local glowCorner = Instance.new("UICorner")
+	glowCorner.CornerRadius = UDim.new(0, 12)
+	glowCorner.Parent = glow
+	local glowGrad = Instance.new("UIGradient")
+	glowGrad.Rotation = 90
+	glowGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.85),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	glowGrad.Parent = glow
+end
+
 local panelStroke = Instance.new("UIStroke")
 panelStroke.Color        = STROKE
 panelStroke.Transparency = 0.5
@@ -365,7 +410,22 @@ for i, statKey in ipairs(STAT_ORDER) do
 	statBars[statKey] = {
 		fill = barFill,
 		valueLabel = valLabel,
+		barBg = barBg,
 	}
+
+	local STAT_DESCS = {
+		health  = "Their current health. Zero means death.",
+		hunger  = "How full they are. Low hunger drains health.",
+		thirst  = "Their hydration level. Low thirst drains health.",
+		fatigue = "How rested they are. Low fatigue slows them down.",
+	}
+	TooltipModule.register(barBg, {
+		kind = "stat",
+		statName = STAT_LABELS[statKey],
+		value = 100, max = 100,
+		barColor = BAR_COLORS[statKey],
+		description = STAT_DESCS[statKey] or "",
+	})
 end
 
 -- ── Info rows (below stat bars) ────────────────────────────────────────
@@ -455,6 +515,25 @@ inspectDataRemote.OnClientEvent:Connect(function(data)
 	updateStatBar("hunger",  data.hunger  or 100, data.maxHunger  or 100)
 	updateStatBar("thirst",  data.thirst  or 100, data.maxThirst  or 100)
 	updateStatBar("fatigue", data.fatigue or 100, data.maxFatigue or 100)
+
+	-- Update inspect stat tooltips with live values
+	for _, statKey in ipairs(STAT_ORDER) do
+		local bar = statBars[statKey]
+		if bar and bar.barBg then
+			local val = data[statKey] or 100
+			local maxVal = data["max" .. statKey:sub(1, 1):upper() .. statKey:sub(2)] or 100
+			TooltipModule.update(bar.barBg, {
+				kind = "stat",
+				statName = STAT_LABELS[statKey],
+				value = val, max = maxVal,
+				barColor = BAR_COLORS[statKey],
+				description = statKey == "health" and "Their current health. Zero means death."
+					or statKey == "hunger" and "How full they are. Low hunger drains health."
+					or statKey == "thirst" and "Their hydration level. Low thirst drains health."
+					or "How rested they are. Low fatigue slows them down.",
+			})
+		end
+	end
 
 	wealthValue.Text   = data.wealthTier or "Unknown"
 	survivalValue.Text  = data.survivalTime or "0m"

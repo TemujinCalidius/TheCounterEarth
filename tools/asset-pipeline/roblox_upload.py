@@ -29,6 +29,9 @@ MIME_TYPES = {
     ".wav": "audio/wav",
     ".flac": "audio/flac",
     ".fbx": "model/fbx",
+    ".obj": "model/obj",
+    ".glb": "model/gltf-binary",
+    ".stl": "model/stl",
 }
 
 

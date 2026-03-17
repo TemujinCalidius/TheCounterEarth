@@ -6,6 +6,9 @@ local Players            = game:GetService("Players")
 local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 local TweenService       = game:GetService("TweenService")
 
+local AchievementConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AchievementConfig"))
+local AssetIds          = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
+
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
@@ -25,7 +28,7 @@ local FONT_BOLD = Enum.Font.GothamBold
 local FONT_MED  = Enum.Font.GothamMedium
 
 local TOAST_W = 300
-local TOAST_H = 70
+local TOAST_H = 90
 local SLIDE_IN  = 0.3
 local HOLD_TIME = 4.0
 local FADE_OUT  = 0.5
@@ -60,6 +63,35 @@ local function showToast(data: { key: string, name: string, icon: string, catego
 	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = toast
 
+	-- Toast visual depth: gradient + inner glow
+	local toastGrad = Instance.new("UIGradient")
+	toastGrad.Rotation = 90
+	toastGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(38, 42, 56)),
+		ColorSequenceKeypoint.new(0.4, Color3.fromRGB(22, 24, 34)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 13, 20)),
+	})
+	toastGrad.Parent = toast
+
+	local toastGlow = Instance.new("Frame")
+	toastGlow.Name = "InnerGlow"
+	toastGlow.Size = UDim2.new(1, 0, 0, 30)
+	toastGlow.Position = UDim2.new(0, 0, 0, 0)
+	toastGlow.BackgroundColor3 = GOLD
+	toastGlow.BorderSizePixel = 0
+	toastGlow.ZIndex = 0
+	toastGlow.Parent = toast
+	local toastGlowCorner = Instance.new("UICorner")
+	toastGlowCorner.CornerRadius = UDim.new(0, 8)
+	toastGlowCorner.Parent = toastGlow
+	local toastGlowGrad = Instance.new("UIGradient")
+	toastGlowGrad.Rotation = 90
+	toastGlowGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	toastGlowGrad.Parent = toastGlow
+
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = GOLD
 	stroke.Thickness = 1.5
@@ -74,17 +106,29 @@ local function showToast(data: { key: string, name: string, icon: string, catego
 	accentBar.BorderSizePixel = 0
 	accentBar.Parent = toast
 
-	-- Icon
-	local iconLabel = Instance.new("TextLabel")
-	iconLabel.Size = UDim2.new(0, 40, 0, 40)
-	iconLabel.Position = UDim2.new(0, 14, 0.5, 0)
-	iconLabel.AnchorPoint = Vector2.new(0, 0.5)
-	iconLabel.BackgroundTransparency = 1
-	iconLabel.Text = data.icon
-	iconLabel.TextSize = 28
-	iconLabel.Font = Enum.Font.GothamBold
-	iconLabel.TextColor3 = TEXT_CLR
-	iconLabel.Parent = toast
+	-- Icon (ImageLabel if asset exists, TextLabel fallback for emoji)
+	local achIconAsset = AssetIds.AchievementIcons and AssetIds.AchievementIcons[data.key]
+	if achIconAsset and achIconAsset ~= "" then
+		local img = Instance.new("ImageLabel")
+		img.Size = UDim2.new(0, 36, 0, 36)
+		img.Position = UDim2.new(0, 16, 0.5, 0)
+		img.AnchorPoint = Vector2.new(0, 0.5)
+		img.BackgroundTransparency = 1
+		img.Image = achIconAsset
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Parent = toast
+	else
+		local txt = Instance.new("TextLabel")
+		txt.Size = UDim2.new(0, 40, 0, 40)
+		txt.Position = UDim2.new(0, 14, 0.5, 0)
+		txt.AnchorPoint = Vector2.new(0, 0.5)
+		txt.BackgroundTransparency = 1
+		txt.Text = data.icon
+		txt.TextSize = 28
+		txt.Font = Enum.Font.GothamBold
+		txt.TextColor3 = TEXT_CLR
+		txt.Parent = toast
+	end
 
 	-- Achievement name
 	local nameLabel = Instance.new("TextLabel")
@@ -101,16 +145,33 @@ local function showToast(data: { key: string, name: string, icon: string, catego
 
 	-- Category subtitle
 	local catLabel = Instance.new("TextLabel")
-	catLabel.Size = UDim2.new(1, -64, 0, 18)
-	catLabel.Position = UDim2.new(0, 60, 0, 36)
+	catLabel.Size = UDim2.new(1, -64, 0, 16)
+	catLabel.Position = UDim2.new(0, 60, 0, 34)
 	catLabel.BackgroundTransparency = 1
 	catLabel.Text = "Achievement Unlocked - " .. data.category
-	catLabel.TextSize = 11
+	catLabel.TextSize = 10
 	catLabel.Font = FONT_MED
 	catLabel.TextColor3 = DIM_CLR
 	catLabel.TextXAlignment = Enum.TextXAlignment.Left
 	catLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	catLabel.Parent = toast
+
+	-- Description line
+	local achDef = AchievementConfig.ByKey[data.key]
+	local descText = achDef and achDef.desc or ""
+	if descText ~= "" then
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Size = UDim2.new(1, -64, 0, 18)
+		descLabel.Position = UDim2.new(0, 60, 0, 52)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Text = descText
+		descLabel.TextSize = 10
+		descLabel.Font = FONT_MED
+		descLabel.TextColor3 = TEXT_CLR
+		descLabel.TextXAlignment = Enum.TextXAlignment.Left
+		descLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		descLabel.Parent = toast
+	end
 
 	-- Slide in from right
 	local slideIn = TweenService:Create(toast, TweenInfo.new(SLIDE_IN, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
@@ -131,6 +192,8 @@ local function showToast(data: { key: string, name: string, icon: string, catego
 	for _, child in toast:GetDescendants() do
 		if child:IsA("TextLabel") then
 			table.insert(childFades, TweenService:Create(child, TweenInfo.new(FADE_OUT), { TextTransparency = 1 }))
+		elseif child:IsA("ImageLabel") then
+			table.insert(childFades, TweenService:Create(child, TweenInfo.new(FADE_OUT), { ImageTransparency = 1 }))
 		elseif child:IsA("Frame") then
 			table.insert(childFades, TweenService:Create(child, TweenInfo.new(FADE_OUT), { BackgroundTransparency = 1 }))
 		elseif child:IsA("UIStroke") then

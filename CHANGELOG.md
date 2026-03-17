@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.18.0] - UI overhaul: tooltips, achievement UX, themed panels
+
+### Added
+- **Tooltip system** — new `TooltipModule.luau` shared module with hover tooltips (desktop: mouse-follow with 0.3s delay; mobile: long-press). Supports item, achievement, stat, and text tooltip kinds
+- **Item tooltips** — hover any inventory slot to see name, category, weight, durability bar, spoil timer, and consume effects
+- **Achievement tooltips** — hover achievement cards for description, progress bar, and unlock timestamp
+- **Stat bar tooltips** — hover HUD stat bars (health, energy, hunger, thirst, fatigue, blood, poison) and credits for explanations
+- **Hotbar tooltips** — hover hotbar slots to see pinned item details
+- **Inspect tooltips** — hover inspected player's stat bars for descriptions with live values
+- **Achievement descriptions** — added `desc` field to all 53 achievements with player-facing hint text
+- **53 custom achievement icons** — generated via 3D AI Studio, cozy RPG style; replaces emoji TextLabels with ImageLabels (emoji fallback if asset missing)
+- **Loot bag 3D model** — replaced plain brown cube with a burlap sack mesh for loot bags and death bags
+- **Themed panel backgrounds** — programmatic visual depth on all panels (UIGradient, accent lines, inner glow, bottom shadow) with per-panel accent colours
+- **Bag button icon** — replaced empty "BAG" text button with a themed satchel icon
+
+### Changed
+- **Achievement category filter** — replaced invisible horizontal scrollbar with a dropdown selector showing all 18 categories with per-category unlock counts (e.g. "Cooking (2/3)")
+- **Achievement cards** — added UIStroke (gold when unlocked, muted when locked); icons now use custom ImageLabels
+- **Achievement toast** — now displays achievement description text below category subtitle; toast height increased to 90px; icon uses ImageLabel with fade-out support
+- **Tab hover effects** — inventory tab buttons (ITEMS, RECIPES, CHAR, ACHIEVE) show subtle highlight on hover
+- **Stat bar fills** — added UIGradient for top-to-bottom depth effect on all stat bars
+- **Bag button label** — shrunk to small caption below the icon instead of full-size overlay text
+
+### Fixed
+- **Reed respawn** — reeds were not respawning after harvest due to overly restrictive water-edge position finder; relaxed slope tolerance from 25° to 40°, added diagonal water checks, increased attempts from 30 to 60, added spawn failure logging
+
+---
+
 ## [0.17.0] - asset pipeline & inventory icons
 
 ### Added

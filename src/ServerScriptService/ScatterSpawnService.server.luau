@@ -142,12 +142,15 @@ local function isNearWaterAt(pos: Vector3): boolean
 	return false
 end
 
--- Returns true if any Terrain voxel within `radius` studs (4 cardinal
--- directions, checking ±4 Y) contains water — i.e. pos is a water edge.
+-- Returns true if any Terrain voxel within `radius` studs (cardinal +
+-- diagonal directions, checking ±4 Y) contains water — i.e. pos is near water.
 local function hasWaterNearby(pos: Vector3, radius: number): boolean
+	local diag = radius * 0.707 -- cos(45°)
 	local offsets = {
 		Vector3.new(radius, 0, 0),  Vector3.new(-radius, 0, 0),
 		Vector3.new(0, 0, radius),  Vector3.new(0, 0, -radius),
+		Vector3.new(diag, 0, diag),   Vector3.new(-diag, 0, diag),
+		Vector3.new(diag, 0, -diag),  Vector3.new(-diag, 0, -diag),
 	}
 	for _, off in offsets do
 		local checkPos = pos + off
@@ -175,6 +178,9 @@ end
 -- Maximum slope angle (in radians) for scatter placement.
 -- cos(25°) ≈ 0.906 — rejects surfaces steeper than ~25°.
 local MIN_SURFACE_DOT = math.cos(math.rad(25))
+-- Relaxed slope for water-edge items (shorelines are naturally steeper).
+-- cos(40°) ≈ 0.766
+local MIN_SURFACE_DOT_WATER = math.cos(math.rad(40))
 
 local function isFlatEnough(normal: Vector3?): boolean
 	if not normal then return false end
@@ -190,11 +196,13 @@ local function randomGroundPosition(): (Vector3?, Vector3?)
 	return nil, nil
 end
 
--- Picks a random ground position on land near a water edge, rejecting steep slopes.
+-- Picks a random ground position on land near a water edge.
+-- Uses relaxed slope tolerance (40° vs 25°) because shorelines are naturally steeper.
 local function randomWaterEdgePosition(): (Vector3?, Vector3?)
-	for _ = 1, 30 do
+	for _ = 1, 60 do
 		local pos, normal = raycastGround()
-		if pos and isFlatEnough(normal) and not isNearWaterAt(pos) and hasWaterNearby(pos, 12) then
+		if pos and normal and normal.Y >= MIN_SURFACE_DOT_WATER
+			and not isNearWaterAt(pos) and hasWaterNearby(pos, 12) then
 			return pos, normal
 		end
 	end
@@ -348,15 +356,23 @@ end
 -- Forward declaration required for self-reference inside the closure.
 local spawnOne: (ScatterDef) -> ()
 
+local spawnFailures: { [string]: number } = {}
+
 spawnOne = function(cfg: ScatterDef)
 	if counts[cfg.itemId] >= cfg.maxCount then return end
 
 	local model = createScatterModel(cfg)
 	if not model then
-		-- No valid position found (e.g. all attempts hit water); retry shortly.
+		-- No valid position found; retry shortly.
+		local fails = (spawnFailures[cfg.itemId] or 0) + 1
+		spawnFailures[cfg.itemId] = fails
+		if fails % 20 == 0 then
+			warn(("[ScatterSpawn] %s: %d consecutive spawn failures"):format(cfg.itemId, fails))
+		end
 		task.delay(5, function() spawnOne(cfg) end)
 		return
 	end
+	spawnFailures[cfg.itemId] = 0
 	counts[cfg.itemId] += 1
 
 	-- When the model is removed (picked up or destroyed), schedule a respawn.

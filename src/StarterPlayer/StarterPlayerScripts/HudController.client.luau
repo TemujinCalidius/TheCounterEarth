@@ -77,6 +77,7 @@ local Config        = require(ReplicatedStorage:WaitForChild("Config"):WaitForCh
 local AssetIds      = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local StatsConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
 local ItemRegistry  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+local TooltipModule = require(ReplicatedStorage:WaitForChild("TooltipModule"))
 
 local remotesFolder           = ReplicatedStorage:WaitForChild("Remotes")
 local sprintIntentRemote      = remotesFolder:WaitForChild("SprintIntent")
@@ -251,6 +252,15 @@ local function createBarRow(
 	barFill.Parent = barBackground
 	createRoundedCorner(barFill, UDim.new(0, 8))
 
+	-- Subtle gradient for depth (top lighter, bottom darker)
+	local barGradient = Instance.new("UIGradient")
+	barGradient.Rotation = 90
+	barGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 180, 180)),
+	})
+	barGradient.Parent = barFill
+
 	local valueLabel = Instance.new("TextLabel")
 	valueLabel.Name = "ValueLabel"
 	valueLabel.BackgroundTransparency = 1
@@ -355,6 +365,75 @@ hudDragOverlay.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
 hudDragOverlay.Parent           = playerGui
 
 -- Main panel (Health / Energy / Credits)
+-- Helper: add visual depth to a panel (gradient + top accent line + inner glow)
+local function stylizePanel(parent: Frame, accentColor: Color3?)
+	local tint = accentColor or Color3.fromRGB(160, 130, 80)
+
+	-- Subtle vertical gradient on the panel background itself
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(38, 42, 56)),
+		ColorSequenceKeypoint.new(0.35, Color3.fromRGB(22, 24, 34)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 13, 20)),
+	})
+	grad.Parent = parent
+
+	-- Warm accent line along the top
+	local accent = Instance.new("Frame")
+	accent.Name = "AccentLine"
+	accent.Size = UDim2.new(1, -24, 0, 2)
+	accent.Position = UDim2.new(0, 12, 0, 3)
+	accent.BackgroundColor3 = tint
+	accent.BackgroundTransparency = 0.4
+	accent.BorderSizePixel = 0
+	accent.ZIndex = 2
+	accent.Parent = parent
+	local ac = Instance.new("UICorner")
+	ac.CornerRadius = UDim.new(0, 1)
+	ac.Parent = accent
+
+	-- Inner glow at top edge (fades from warm tint to transparent)
+	local glow = Instance.new("Frame")
+	glow.Name = "InnerGlow"
+	glow.Size = UDim2.new(1, 0, 0, 40)
+	glow.Position = UDim2.new(0, 0, 0, 0)
+	glow.BackgroundColor3 = tint
+	glow.BorderSizePixel = 0
+	glow.ZIndex = 0
+	glow.Parent = parent
+	local glowCorner = Instance.new("UICorner")
+	glowCorner.CornerRadius = UDim.new(0, 12)
+	glowCorner.Parent = glow
+	local glowGrad = Instance.new("UIGradient")
+	glowGrad.Rotation = 90
+	glowGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.85),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	glowGrad.Parent = glow
+
+	-- Bottom edge shadow (subtle darkening at bottom)
+	local shadow = Instance.new("Frame")
+	shadow.Name = "BottomShadow"
+	shadow.Size = UDim2.new(1, 0, 0, 20)
+	shadow.Position = UDim2.new(0, 0, 1, -20)
+	shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	shadow.BorderSizePixel = 0
+	shadow.ZIndex = 0
+	shadow.Parent = parent
+	local shadowCorner = Instance.new("UICorner")
+	shadowCorner.CornerRadius = UDim.new(0, 12)
+	shadowCorner.Parent = shadow
+	local shadowGrad = Instance.new("UIGradient")
+	shadowGrad.Rotation = 90
+	shadowGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0.75),
+	})
+	shadowGrad.Parent = shadow
+end
+
 local root = Instance.new("Frame")
 root.Name = "Root"
 root.Size = UDim2.fromOffset(PANEL_WIDTH, 126)
@@ -364,6 +443,7 @@ root.BackgroundTransparency = 0.2
 root.BorderSizePixel = 0
 root.Parent = hud
 createRoundedCorner(root, UDim.new(0, 12))
+stylizePanel(root)
 
 local rootStroke = Instance.new("UIStroke")
 rootStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -464,6 +544,7 @@ expandedPanel.BorderSizePixel = 0
 expandedPanel.ClipsDescendants = true
 expandedPanel.Parent = hud
 createRoundedCorner(expandedPanel, UDim.new(0, 12))
+stylizePanel(expandedPanel)
 
 local expandedStroke = Instance.new("UIStroke")
 expandedStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -478,6 +559,16 @@ local thirstRow  = createBarRow(expandedPanel, "Thirst",  normalizeAssetId(Asset
 local fatigueRow = createBarRow(expandedPanel, "Fatigue", normalizeAssetId(AssetIds.Images.FatigueIcon), "FT", 84,  Color3.fromRGB(160, 100, 220))
 local bloodRow   = createBarRow(expandedPanel, "Blood",   normalizeAssetId(AssetIds.Images.BloodIcon),   "BL", 124, Color3.fromRGB(180, 40, 40))
 local poisonRow  = createBarRow(expandedPanel, "Poison",  normalizeAssetId(AssetIds.Images.PoisonIcon),  "PS", 164, Color3.fromRGB(60, 150, 60))
+
+-- Register tooltips on stat bar rows
+TooltipModule.register(healthRow.BarBackground.Parent, { kind = "stat", statName = "Health", value = 100, max = 100, barColor = Color3.fromRGB(232, 70, 70), description = "Your life force. Reaches zero and you die. Heal by eating food or resting at a campfire." })
+TooltipModule.register(energyRow.BarBackground.Parent, { kind = "stat", statName = "Energy", value = 100, max = 100, barColor = Color3.fromRGB(90, 205, 120), description = "Stamina for sprinting and jumping. Regenerates when standing still." })
+TooltipModule.register(creditsRow, { kind = "text", title = "Credits", body = "Your currency. Earn from trading and looting." })
+TooltipModule.register(hungerRow.BarBackground.Parent, { kind = "stat", statName = "Hunger", value = 100, max = 100, barColor = Color3.fromRGB(220, 140, 40), description = "How full you are. Drops over time. Eat food to restore." })
+TooltipModule.register(thirstRow.BarBackground.Parent, { kind = "stat", statName = "Thirst", value = 100, max = 100, barColor = Color3.fromRGB(60, 160, 230), description = "Your hydration level. Drops over time. Drink water to restore." })
+TooltipModule.register(fatigueRow.BarBackground.Parent, { kind = "stat", statName = "Fatigue", value = 100, max = 100, barColor = Color3.fromRGB(160, 100, 220), description = "How rested you are. Drops over time. Rest at a bedroll to restore." })
+TooltipModule.register(bloodRow.BarBackground.Parent, { kind = "stat", statName = "Blood", value = 100, max = 100, barColor = Color3.fromRGB(180, 40, 40), description = "Blood level. Drops when wounded. Use bandages to stop bleeding." })
+TooltipModule.register(poisonRow.BarBackground.Parent, { kind = "stat", statName = "Poison", value = 0, max = 100, barColor = Color3.fromRGB(60, 150, 60), description = "Poison level. Rises from eating raw or toxic food. Use an antidote to cure." })
 
 -- Status effect badges row
 local statusRow = Instance.new("Frame")
@@ -537,6 +628,7 @@ hotbarRoot.BorderSizePixel = 0
 hotbarRoot.Active = true  -- Sink touch input so it doesn't trigger Roblox's thumbstick
 hotbarRoot.Parent = hud
 createRoundedCorner(hotbarRoot, UDim.new(0, 12))
+stylizePanel(hotbarRoot)
 
 local hotbarStroke = Instance.new("UIStroke")
 hotbarStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -950,6 +1042,21 @@ local function refreshHotbar()
 		ui.stroke.Color       = isEquipped and Color3.fromRGB(115, 230, 140) or Color3.fromRGB(95, 105, 125)
 		ui.stroke.Thickness   = isEquipped and 2 or 1
 		ui.stroke.Transparency = isEquipped and 0.1 or 0.5
+
+		-- Hotbar tooltip
+		if itemId ~= "" then
+			TooltipModule.update(ui.frame, { kind = "item", itemId = itemId, qty = tonumber(ui.qtyLabel.Text) or 1 })
+		else
+			TooltipModule.update(ui.frame, { kind = "text", title = "Hotbar " .. tostring(slot), body = "Pin an item from your inventory." })
+		end
+	end
+end
+
+-- Register hotbar slot tooltips (initial)
+for slot = 1, hotbarSlotCount do
+	local ui = hotbarSlotUIs[slot]
+	if ui then
+		TooltipModule.register(ui.frame, { kind = "text", title = "Hotbar " .. tostring(slot), body = "Pin an item from your inventory." })
 	end
 end
 
@@ -1783,6 +1890,7 @@ local function buildCookingPanel()
 	local panelCorner = Instance.new("UICorner")
 	panelCorner.CornerRadius = UDim.new(0, 12)
 	panelCorner.Parent = panel
+	stylizePanel(panel, Color3.fromRGB(200, 130, 60))
 
 	local panelStroke = Instance.new("UIStroke")
 	panelStroke.Color = Color3.fromRGB(210, 220, 245)
@@ -2263,6 +2371,7 @@ local function buildLootBagPanel()
 	local panelCorner = Instance.new("UICorner")
 	panelCorner.CornerRadius = UDim.new(0, 12)
 	panelCorner.Parent = panel
+	stylizePanel(panel, Color3.fromRGB(210, 180, 120))
 
 	local panelStroke = Instance.new("UIStroke")
 	panelStroke.Color = Color3.fromRGB(210, 180, 120)
@@ -2633,6 +2742,7 @@ local function buildTradePanel()
 	local panelCorner = Instance.new("UICorner")
 	panelCorner.CornerRadius = UDim.new(0, 12)
 	panelCorner.Parent = panel
+	stylizePanel(panel, Color3.fromRGB(120, 180, 210))
 
 	local panelStroke = Instance.new("UIStroke")
 	panelStroke.Color = Color3.fromRGB(120, 180, 210)

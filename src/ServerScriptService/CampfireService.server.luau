@@ -134,18 +134,31 @@ local function createLootBagAtPosition(position: Vector3, items: { SlotData })
 	bag.Name = "LootBag"
 	bag:SetAttribute("_isLootBag", true)
 
-	local handle = Instance.new("Part")
-	handle.Name          = "Handle"
-	handle.Size          = Vector3.new(1.2, 1.2, 1.2)
-	handle.CFrame        = CFrame.new(position + Vector3.new(0, 1, 0))
-	handle.Anchored      = true
-	handle.BrickColor    = BrickColor.new("Reddish brown")
-	handle.Material      = Enum.Material.Fabric
-	handle.Shape         = Enum.PartType.Ball
-	handle.TopSurface    = Enum.SurfaceType.Smooth
-	handle.BottomSurface = Enum.SurfaceType.Smooth
-	handle.Parent        = bag
-	bag.PrimaryPart      = handle
+	local lootBagTemplate = ServerStorage:FindFirstChild("ItemTools") and ServerStorage.ItemTools:FindFirstChild("loot_bag")
+	local handle
+	if lootBagTemplate then
+		local clone = lootBagTemplate:Clone()
+		handle = clone:IsA("BasePart") and clone or clone:FindFirstChildWhichIsA("BasePart")
+		if handle and handle ~= clone then
+			handle.Parent = nil
+			clone:Destroy()
+		elseif not handle then
+			clone:Destroy()
+			handle = nil
+		end
+	end
+	if not handle then
+		handle = Instance.new("Part")
+		handle.Color = Color3.fromRGB(139, 90, 43)
+	end
+	handle.Size     = Vector3.new(1.2, 1.2, 1.2)
+	local rayResult = Workspace:Raycast(position + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0), RaycastParams.new())
+	local groundY = rayResult and rayResult.Position.Y or position.Y
+	handle.CFrame   = CFrame.new(position.X, groundY + 0.6, position.Z)
+	handle.Anchored = true
+	handle.CanCollide = false
+	handle.Parent   = bag
+	bag.PrimaryPart = handle
 
 	for _, entry in ipairs(items) do
 		local v = Instance.new("IntValue")
