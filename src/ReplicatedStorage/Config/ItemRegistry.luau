@@ -124,7 +124,7 @@ Items.stone_axe = {
 		harvestTags = { "wood", "tree" },
 	},
 	tags = { "tool", "axe", "tier0", "primitive" },
-	icon = "",
+	icon = "rbxassetid://83177613644634",
 }
 
 Items.stone_pickaxe = {
@@ -142,7 +142,7 @@ Items.stone_pickaxe = {
 		harvestTags = { "stone", "ore" },
 	},
 	tags = { "tool", "pickaxe", "tier0", "primitive" },
-	icon = "rbxassetid://6b2a2ece911bf06b09bbed2e00001630",
+	icon = "rbxassetid://70659355065719",
 }
 
 Items.stone_knife = {
@@ -205,7 +205,7 @@ Items.wood = {
 	slotSize = { w = 1, h = 2 },
 	category = "material",
 	tags = { "material", "wood", "tier1" },
-	icon = "",
+	icon = "rbxassetid://80881492393736",
 }
 
 Items.stone = {
@@ -217,7 +217,7 @@ Items.stone = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "stone", "tier1" },
-	icon = "",
+	icon = "rbxassetid://140587989430036",
 }
 
 Items.reed = {
@@ -241,7 +241,7 @@ Items.iron_ore = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "ore", "iron", "tier1" },
-	icon = "",
+	icon = "rbxassetid://121339013867057",
 }
 
 -- ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ Items.cooked_mushroom = {
 	perishSeconds = 3600,
 	onConsume = { health = 10, hunger = 18, thirst = 2 },
 	tags = { "food", "cooked" },
-	icon = "",
+	icon = "rbxassetid://116959815948177",
 }
 
 Items.spoiled_food = {
@@ -271,7 +271,7 @@ Items.spoiled_food = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "junk", "alchemy" },
-	icon = "",
+	icon = "rbxassetid://70694772297700",
 }
 
 Items.water_skin = {
@@ -284,7 +284,7 @@ Items.water_skin = {
 	category = "food",
 	onConsume = { thirst = 40 },
 	tags = { "food", "drink", "water" },
-	icon = "",
+	icon = "rbxassetid://109433490537026",
 }
 
 -- ---------------------------------------------------------------------------
@@ -301,7 +301,7 @@ Items.bandage = {
 	category = "medical",
 	onConsume = { health = 5 },
 	tags = { "medical", "bandage", "stops_bleed" },
-	icon = "",
+	icon = "rbxassetid://105711750453135",
 }
 
 Items.antidote = {
@@ -314,7 +314,7 @@ Items.antidote = {
 	category = "medical",
 	onConsume = {},
 	tags = { "medical", "antidote", "clears_poison" },
-	icon = "",
+	icon = "rbxassetid://77121987674625",
 }
 
 -- ---------------------------------------------------------------------------
@@ -331,7 +331,7 @@ Items.coin_credits = {
 	category = "currency",
 	currency = { economy = "credits", denomination = "credit", denominationValue = 1 },
 	tags = { "currency", "credits" },
-	icon = "",
+	icon = "rbxassetid://122571796115169",
 }
 
 Items.coin_copper = {
@@ -344,7 +344,7 @@ Items.coin_copper = {
 	category = "currency",
 	currency = { economy = "standard", denomination = "copper", denominationValue = 1 },
 	tags = { "currency", "standard", "copper" },
-	icon = "",
+	icon = "rbxassetid://127088174978840",
 }
 
 Items.coin_silver = {
@@ -357,7 +357,7 @@ Items.coin_silver = {
 	category = "currency",
 	currency = { economy = "standard", denomination = "silver", denominationValue = 100 },
 	tags = { "currency", "standard", "silver" },
-	icon = "",
+	icon = "rbxassetid://108939641140967",
 }
 
 Items.coin_gold = {
@@ -370,7 +370,7 @@ Items.coin_gold = {
 	category = "currency",
 	currency = { economy = "standard", denomination = "gold", denominationValue = 10000 },
 	tags = { "currency", "standard", "gold" },
-	icon = "",
+	icon = "rbxassetid://139295913122525",
 }
 
 -- ---------------------------------------------------------------------------
@@ -387,7 +387,7 @@ Items.pouch_credits = {
 	category = "container",
 	coinPouch = { acceptsEconomy = "credits" },
 	tags = { "container", "coin_pouch", "credits" },
-	icon = "",
+	icon = "rbxassetid://105435561674307",
 }
 
 Items.pouch_standard = {
@@ -400,7 +400,7 @@ Items.pouch_standard = {
 	category = "container",
 	coinPouch = { acceptsEconomy = "standard" },
 	tags = { "container", "coin_pouch", "standard" },
-	icon = "",
+	icon = "rbxassetid://75831714361663",
 }
 
 -- ---------------------------------------------------------------------------
@@ -417,7 +417,7 @@ Items.satchel_reed = {
 	category = "container",
 	backpack = { slots = 10, maxWeight = 10 },
 	tags = { "container", "backpack", "tier0" },
-	icon = "",
+	icon = "rbxassetid://109737374250301",
 }
 
 Items.pack_leather = {
@@ -430,7 +430,7 @@ Items.pack_leather = {
 	category = "container",
 	backpack = { slots = 20, maxWeight = 30 },
 	tags = { "container", "backpack", "tier1" },
-	icon = "",
+	icon = "rbxassetid://122038665945878",
 }
 
 -- ---------------------------------------------------------------------------

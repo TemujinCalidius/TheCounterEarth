@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.17.0] - asset pipeline & inventory icons
+
+### Added
+- **Asset pipeline** — automated image generation (3D AI Studio), background removal, resize to 512x512, and upload to Roblox via Open Cloud API
+- **17 inventory icons generated** — stone_pickaxe, wood, stone, iron_ore, cooked_mushroom, spoiled_food, water_skin, bandage, antidote, coin_credits, coin_copper, coin_silver, coin_gold, pouch_credits, pouch_standard, satchel_reed, pack_leather
+- **Roblox MCP server** — switched to Vltja/Roblox-MCP (Node.js) with 17 Studio tools and free Creator Store plugin
+- **Batch icon generator** — `tools/asset-pipeline/batch_icons.py` for bulk icon generation with rate limiting
+
+### Fixed
+- **Asset pipeline endpoints** — updated 3D AI Studio API paths (added `/generate/` suffix, dots in version numbers)
+- **Upload type** — changed from `"Decal"` to `"Image"` so icons work in ImageLabel/ImageButton
+- **Poll status** — added `"finished"` to completion states (API returns uppercase `FINISHED`)
+- **URL extraction** — added `asset` key for 3D AI Studio response format
+- **Roblox upload polling** — fixed operation path construction for async uploads
+- **stone_pickaxe icon** — replaced invalid hex UUID with proper numeric rbxassetid
+
+---
+
 ## [0.16.0] - reed satchel backpack system
 
 ### Added

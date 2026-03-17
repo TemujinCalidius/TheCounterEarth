@@ -9,6 +9,10 @@ sourcemap.json
 
 # Rojo binaries (large, platform-specific)
 tools/
+!tools/asset-pipeline/
+
+# Environment variables (API keys)
+.env
 
 # Raw assets (textures, audio — kept local, not in repo)
 assets/raw/textures/
