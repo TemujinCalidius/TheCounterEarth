@@ -458,6 +458,7 @@ local function decodeProfile(raw: any): { [string]: any }?
 		survivalSeconds = tonumber(raw.survivalSeconds) or 0,
 		uiPositions = if type(raw.uiPositions) == "table" then raw.uiPositions else {},
 		achievements = if type(raw.achievements) == "table" then raw.achievements else nil,
+		equippedBackpack = if type(raw.equippedBackpack) == "string" then raw.equippedBackpack else nil,
 	}
 end
 
@@ -510,8 +511,29 @@ local function loadProfile(userId: number): { [string]: any }
 
 	local decoded = decodeProfile(result)
 	if decoded then
+		-- DEBUG: log what we loaded
+		local hotbarDebug = {}
+		if type(decoded.inventory) == "table" and type(decoded.inventory.slots) == "table" then
+			for i, v in ipairs(decoded.inventory.slots) do
+				if v ~= "" then hotbarDebug[i] = v end
+			end
+		end
+		local invSlotsDebug = {}
+		if type(decoded.invSlots) == "table" then
+			for _, entry in ipairs(decoded.invSlots) do
+				table.insert(invSlotsDebug, entry.itemId .. "x" .. tostring(entry.qty))
+			end
+		end
+		print(string.format("[LOAD] Player %d | key=%s | hotbar=%s | invSlots=%s | achievements=%s",
+			userId, key,
+			game:GetService("HttpService"):JSONEncode(hotbarDebug),
+			table.concat(invSlotsDebug, ", "),
+			tostring(decoded.achievements ~= nil)
+		))
 		return decoded
 	end
+
+	print(string.format("[LOAD] Player %d | key=%s | decodeProfile returned nil (raw type=%s)", userId, key, type(result)))
 
 	if type(result) == "number" then
 		profile.credits = math.floor(result + 0.5)
@@ -872,6 +894,7 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 		lastPosition = lastPosition,
 		survivalSeconds = math.floor(state.survivalSeconds),
 		uiPositions = playerUIPositions[player] or {},
+		equippedBackpack = player:GetAttribute("EquipSlot_Backpack") or nil,
 		achievements = (function()
 			local achSave = bindablesFolder:FindFirstChild("AchievementSave")
 			if achSave and achSave:IsA("BindableFunction") then
@@ -904,6 +927,27 @@ local function saveProfile(player: Player, force: boolean)
 
 	local key = getProfileKey(player.UserId)
 	local payload = buildProfileFromState(player, state)
+
+	-- DEBUG: log what we're saving
+	local hotbarDebug = {}
+	if type(payload.inventory) == "table" and type(payload.inventory.slots) == "table" then
+		for i, v in ipairs(payload.inventory.slots) do
+			if v ~= "" then hotbarDebug[i] = v end
+		end
+	end
+	local invSlotsDebug = {}
+	if type(payload.invSlots) == "table" then
+		for _, entry in ipairs(payload.invSlots) do
+			table.insert(invSlotsDebug, entry.itemId .. "x" .. tostring(entry.qty))
+		end
+	end
+	print(string.format("[SAVE] Player %d (%s) | key=%s | hotbar=%s | invSlots=%s | achievements=%s",
+		player.UserId, player.Name, key,
+		game:GetService("HttpService"):JSONEncode(hotbarDebug),
+		table.concat(invSlotsDebug, ", "),
+		tostring(payload.achievements ~= nil)
+	))
+
 	state.lastSaveTime = now  -- update before pcall so throttle failures don't cause retry floods
 	local success, err = pcall(function()
 		profileStore:SetAsync(key, payload)
@@ -914,6 +958,7 @@ local function saveProfile(player: Player, force: boolean)
 		return
 	end
 
+	print(string.format("[SAVE] Success for %d", player.UserId))
 	state.profileDirty = false
 end
 
@@ -1149,6 +1194,11 @@ local function setupPlayer(player: Player)
 
 	local pocketSlots = (Config.Inventory and Config.Inventory.PocketSlots) or 5
 	player:SetAttribute("MaxInvSlots", pocketSlots)
+
+	-- Restore equipped backpack (InventoryService.initPlayer will recalc capacity)
+	if profile.equippedBackpack and profile.equippedBackpack ~= "" then
+		player:SetAttribute("EquipSlot_Backpack", profile.equippedBackpack)
+	end
 
 	player:SetAttribute("MaxEnergy", Config.Energy.Max)
 	player:SetAttribute("Energy", round1(state.energy))

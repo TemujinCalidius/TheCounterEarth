@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.16.0] - reed satchel backpack system
+
+### Added
+- **Backpack equip system** — equipping a satchel from inventory moves it to the Backpack equipment slot in the CHAR tab, expanding inventory from 5 to 15 slots and carry weight from 5kg to 15kg
+- **EQUIP button** in inventory detail strip for backpack items; shows "EQUIPPED" (grayed) when one is already worn
+- **Click-to-unequip** on Backpack slot in CHARACTER tab — returns satchel to inventory (blocked if backpack slots contain items)
+- **Backpack persistence** — equipped backpack saved/loaded from DataStore profile (`equippedBackpack` field)
+- **Death drops backpack** — equipped satchel is dumped into death loot bag along with all inventory; capacity resets to base 5 slots / 5kg
+
+### Changed
+- **ItemRegistry backpack format** — switched from grid-based (`gridW`/`gridH`) to slot-based (`slots`/`maxWeight`): satchel_reed = 10 slots / 10kg, pack_leather = 20 slots / 30kg
+
+---
+
+## [0.15.1] - persistence & harvest fixes
+
+### Fixed
+- **Achievement data lost on relog** — race condition where AchievementService cleared player state in `PlayerRemoving` before PlayerStateService could save it. Deferred cleanup so save completes first
+- **"Inventory full" not visible** — harvest failures (full inventory, no knife) now show a centered red screen notification instead of an invisible BillboardGui above the player's head
+- **Bare-hands near harvest node silent failure** — clicking near a reed with nothing equipped now shows "You need a knife" instead of doing nothing
+- **AchievementToastController infinite yield** — `WaitForChild("AchievementUnlocked")` without timeout blocked forever if AchievementService failed to start. Added 10s timeout with graceful fallback
+- **AchievementConfig parse errors** — removed invalid Luau type annotations on module field assignments that caused cascading script failures
+
+### Changed
+- **Bedroll pickup** — any player can now pick up any bedroll (PvP raiding), but pickup is blocked while someone is sleeping/resting on it
+
+---
+
 ## [0.15.0] - in-game achievement system (53 achievements)
 
 ### Added

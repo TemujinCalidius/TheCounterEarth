@@ -326,5 +326,10 @@ end)
 -- ── Cleanup ─────────────────────────────────────────────────────────────
 
 Players.PlayerRemoving:Connect(function(player)
-	playerStates[player] = nil
+	-- Defer cleanup so PlayerStateService can save achievement data first.
+	-- buildProfileFromState invokes AchievementSave synchronously before
+	-- yielding to SetAsync, so the state must remain alive until then.
+	task.defer(function()
+		playerStates[player] = nil
+	end)
 end)

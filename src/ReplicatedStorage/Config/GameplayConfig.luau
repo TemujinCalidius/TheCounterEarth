@@ -85,7 +85,7 @@ return {
 		-- Weight limits per backpack tier (must match backpack ItemDef.backpack.maxWeight).
 		-- Listed here for reference; the authoritative value is in ItemRegistry.
 		BackpackWeightTiers = {
-			[0] = 12,   -- Cloth Satchel
+			[0] = 10,   -- Reed Satchel
 			[1] = 30,   -- Leather Pack
 		},
 

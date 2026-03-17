@@ -10,7 +10,11 @@ local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
-local unlockRemote  = remotesFolder:WaitForChild("AchievementUnlocked")
+local unlockRemote  = remotesFolder:WaitForChild("AchievementUnlocked", 10)
+if not unlockRemote then
+	warn("[AchievementToast] AchievementUnlocked remote not found — toasts disabled")
+	return
+end
 
 -- ── Style ────────────────────────────────────────────────────────────────
 local BG       = Color3.fromRGB(20, 22, 30)

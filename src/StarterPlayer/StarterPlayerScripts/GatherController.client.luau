@@ -19,11 +19,59 @@ local remotesFolder   = ReplicatedStorage:WaitForChild("Remotes")
 local harvestResult   = remotesFolder:WaitForChild("HarvestResult")
 local harvestNotify   = remotesFolder:WaitForChild("HarvestNotify")
 
+local TweenService = game:GetService("TweenService")
+
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
--- ── Notify (floating text near player head) ───────────────────────────
+-- ── Screen-level notification GUI (for error messages) ──────────────
 
-local function showNotify(message: string)
+local notifyScreenGui = Instance.new("ScreenGui")
+notifyScreenGui.Name = "GatherNotifications"
+notifyScreenGui.DisplayOrder = 15
+notifyScreenGui.ResetOnSpawn = false
+notifyScreenGui.IgnoreGuiInset = true
+notifyScreenGui.Parent = playerGui
+
+-- ── Notify (floating text near player head, or centered screen for errors) ──
+
+local function showNotify(message: string, isError: boolean?)
+	if isError then
+		-- Screen-center notification — impossible to miss
+		local label = Instance.new("TextLabel")
+		label.Name = "ErrorNotify"
+		label.Size = UDim2.new(0, 400, 0, 40)
+		label.Position = UDim2.new(0.5, 0, 0.35, 0)
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.BackgroundColor3 = Color3.fromRGB(30, 20, 20)
+		label.BackgroundTransparency = 0.3
+		label.Text = message
+		label.TextColor3 = Color3.fromRGB(215, 80, 75)
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 18
+		label.TextStrokeTransparency = 0.3
+		label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		label.Parent = notifyScreenGui
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = label
+
+		-- Fade out after 1.5s
+		task.delay(1.5, function()
+			if not label.Parent then return end
+			local tween = TweenService:Create(label, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {
+				TextTransparency = 1,
+				BackgroundTransparency = 1,
+			})
+			tween:Play()
+			tween.Completed:Wait()
+			if label.Parent then label:Destroy() end
+		end)
+		return
+	end
+
+	-- Normal: BillboardGui above player head
 	local character = player.Character
 	local head = character and character:FindFirstChild("Head")
 	if not head then return end
@@ -31,10 +79,10 @@ local function showNotify(message: string)
 	local bb = Instance.new("BillboardGui")
 	bb.Name              = "GatherNotify"
 	bb.Adornee           = head
-	bb.Size              = UDim2.new(0, 200, 0, 30)
+	bb.Size              = UDim2.new(0, 250, 0, 30)
 	bb.StudsOffset       = Vector3.new(0, 3, 0)
 	bb.AlwaysOnTop       = true
-	bb.Parent            = player.PlayerGui
+	bb.Parent            = playerGui
 
 	local label = Instance.new("TextLabel")
 	label.Size                  = UDim2.new(1, 0, 1, 0)
@@ -43,7 +91,7 @@ local function showNotify(message: string)
 	label.TextColor3            = Color3.fromRGB(255, 200, 80)
 	label.Font                  = Enum.Font.GothamBold
 	label.TextSize              = 14
-	label.TextStrokeTransparency = 0.4
+	label.TextStrokeTransparency = 0.3
 	label.TextStrokeColor3      = Color3.fromRGB(0, 0, 0)
 	label.Parent                = bb
 
@@ -221,7 +269,8 @@ end)
 -- ── HarvestNotify handler ────────────────────────────────────────────
 
 harvestNotify.OnClientEvent:Connect(function(message: string)
-	showNotify(message)
+	local isError = string.find(message, "full") ~= nil or string.find(message, "need") ~= nil
+	showNotify(message, isError)
 	if string.find(message, "broke") then
 		toolBreakSound:Play()
 	end

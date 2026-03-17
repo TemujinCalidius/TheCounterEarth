@@ -1076,6 +1076,7 @@ local function tryAttackWithEquippedItem()
 				if bestNode then
 					lastHarvestTarget = bestNode
 					lastHarvestHitTime = now
+					-- Send to server even if wrong/no tool — server sends proper rejection message
 					harvestHitRemote:FireServer(bestNode)
 					return
 				end
@@ -1086,6 +1087,57 @@ local function tryAttackWithEquippedItem()
 	hotbarAttackRemote:FireServer()
 end
 
+-- Wrapper that also checks for nearby harvest nodes when nothing is equipped
+local function onPlayerClick()
+	local eqSlot = tonumber(player:GetAttribute("HotbarEquippedSlot")) or 0
+	local itemValue = ""
+	if eqSlot >= 1 and eqSlot <= hotbarSlotCount then
+		itemValue = player:GetAttribute(getSlotAttributeName(eqSlot))
+		if type(itemValue) ~= "string" then itemValue = "" end
+	end
+
+	-- If player has something useful equipped, use normal attack flow
+	if itemValue ~= "" then
+		tryAttackWithEquippedItem()
+		return
+	end
+
+	-- Nothing equipped (or empty slot) — still check for nearby harvest nodes
+	-- so server can send "You need a knife" feedback
+	local now = os.clock()
+	if (now - lastHarvestHitTime) < HARVEST_HIT_COOLDOWN then return end
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local scatterFolder = Workspace:FindFirstChild("Scatter")
+	if not scatterFolder then return end
+
+	local bestDist = 8
+	local bestNode: Model? = nil
+	for _, child in scatterFolder:GetChildren() do
+		if child:IsA("Model") and child:GetAttribute("_ScatterItem") then
+			local hp = tonumber(child:GetAttribute("_NodeHealth")) or 0
+			if hp > 0 then
+				local part = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+				if part then
+					local dist = (root.Position - part.Position).Magnitude
+					if dist < bestDist then
+						bestDist = dist
+						bestNode = child
+					end
+				end
+			end
+		end
+	end
+
+	if bestNode then
+		lastHarvestHitTime = now
+		harvestHitRemote:FireServer(bestNode)
+	end
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if player:GetAttribute("IsPlacementMode") == true then return end
 
@@ -1094,7 +1146,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if input.UserInputType == Enum.UserInputType.Touch and gameProcessed then
 			return
 		end
-		tryAttackWithEquippedItem()
+		onPlayerClick()
 		return
 	end
 	-- Sprint: accept both Shift keys regardless of gameProcessed

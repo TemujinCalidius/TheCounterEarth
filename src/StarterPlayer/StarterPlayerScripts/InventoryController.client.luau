@@ -64,9 +64,11 @@ local tradeUpdateOfferRemote = remotes:WaitForChild("TradeUpdateOffer")  :: Remo
 local tradeInitiateRemote    = remotes:WaitForChild("TradeInitiate")     :: RemoteEvent
 local craftFailedRemote      = remotes:WaitForChild("CraftFailed")       :: RemoteEvent
 local saveUIPosRemote        = remotes:WaitForChild("SaveUIPosition")    :: RemoteEvent
-local achieveSyncRemote      = remotes:WaitForChild("AchievementSync")    :: RemoteEvent
-local achieveRequestRemote   = remotes:WaitForChild("AchievementRequest") :: RemoteEvent
-local achieveUnlockedRemote  = remotes:WaitForChild("AchievementUnlocked") :: RemoteEvent
+local equipBackpackRemote    = remotes:WaitForChild("EquipBackpack")     :: RemoteEvent
+local unequipBackpackRemote  = remotes:WaitForChild("UnequipBackpack")   :: RemoteEvent
+local achieveSyncRemote      = remotes:WaitForChild("AchievementSync", 10)
+local achieveRequestRemote   = remotes:WaitForChild("AchievementRequest", 10)
+local achieveUnlockedRemote  = remotes:WaitForChild("AchievementUnlocked", 10)
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -415,7 +417,7 @@ local detailSlotLabel = makeLabel(detailStrip, {
 -- Action buttons (right side of detail strip): USE | ->HOTBAR | SPLIT | DROP
 local detailUseBtn = makeButton(detailStrip, {
 	Size             = UDim2.new(0, 46, 0, 26),
-	Position         = UDim2.new(1, -268, 0.5, -13),
+	Position         = UDim2.new(1, -326, 0.5, -13),
 	BackgroundColor3 = Color3.fromRGB(45, 80, 45),
 	Text             = "USE",
 	TextColor3       = OK,
@@ -424,9 +426,20 @@ local detailUseBtn = makeButton(detailStrip, {
 })
 addCorner(detailUseBtn, 5)
 
+local detailEquipBtn = makeButton(detailStrip, {
+	Size             = UDim2.new(0, 52, 0, 26),
+	Position         = UDim2.new(1, -268, 0.5, -13),
+	BackgroundColor3 = Color3.fromRGB(30, 60, 80),
+	Text             = "EQUIP",
+	TextColor3       = ACCENT,
+	TextSize         = 11,
+	Visible          = false,
+})
+addCorner(detailEquipBtn, 5)
+
 local detailHotbarBtn = makeButton(detailStrip, {
 	Size             = UDim2.new(0, 84, 0, 26),
-	Position         = UDim2.new(1, -216, 0.5, -13),
+	Position         = UDim2.new(1, -210, 0.5, -13),
 	BackgroundColor3 = ACCENT,
 	Text             = "-> HOTBAR",
 	TextColor3       = TEXT,
@@ -1131,7 +1144,7 @@ local SLOT_PAIRS = {
 
 local SLOT_W, SLOT_H, SLOT_GAP = 118, 40, 6
 
-type SlotRef = { nameLabel: TextLabel, valLabel: TextLabel }
+type SlotRef = { nameLabel: TextLabel, valLabel: TextLabel, box: Frame? }
 local slotRefs: { [string]: SlotRef } = {}
 
 local function makeSlotBox(parent: Instance, slotId: string, labelText: string, xOff: number, yOff: number)
@@ -1160,13 +1173,31 @@ local function makeSlotBox(parent: Instance, slotId: string, labelText: string, 
 		Font           = FONTB,
 		TextSize       = 12,
 	})
-	slotRefs[slotId] = { nameLabel = nameLabel, valLabel = valLabel }
+	slotRefs[slotId] = { nameLabel = nameLabel, valLabel = valLabel, box = box }
 end
 
 for row, pair in ipairs(SLOT_PAIRS) do
 	local yOff = 20 + (row - 1) * (SLOT_H + SLOT_GAP)
 	makeSlotBox(equipSection, pair[1], pair[2], 0,          yOff)
 	makeSlotBox(equipSection, pair[3], pair[4], SLOT_W + 8, yOff)
+end
+
+-- Click Backpack slot to unequip
+do
+	local bpRef = slotRefs["Backpack"]
+	if bpRef and bpRef.box then
+		local btn = Instance.new("TextButton")
+		btn.Size                    = UDim2.new(1, 0, 1, 0)
+		btn.BackgroundTransparency  = 1
+		btn.Text                    = ""
+		btn.Parent                  = bpRef.box
+		btn.Activated:Connect(function()
+			local equipped = player:GetAttribute("EquipSlot_Backpack") or ""
+			if equipped ~= "" then
+				unequipBackpackRemote:FireServer()
+			end
+		end)
+	end
 end
 
 local statsSection = Instance.new("Frame")
@@ -1428,21 +1459,25 @@ for idx, btn in ipairs(achFilterButtons) do
 end
 
 -- Listen for achievement sync from server
-achieveSyncRemote.OnClientEvent:Connect(function(data)
-	if type(data) ~= "table" then return end
-	if type(data.counters) == "table" then achCounters = data.counters end
-	if type(data.unlocked) == "table" then achUnlocked = data.unlocked end
-	refreshAchievements()
-end)
+if achieveSyncRemote then
+	achieveSyncRemote.OnClientEvent:Connect(function(data)
+		if type(data) ~= "table" then return end
+		if type(data.counters) == "table" then achCounters = data.counters end
+		if type(data.unlocked) == "table" then achUnlocked = data.unlocked end
+		refreshAchievements()
+	end)
+end
 
 -- Listen for individual unlocks (update local state immediately)
-achieveUnlockedRemote.OnClientEvent:Connect(function(data)
-	if type(data) ~= "table" then return end
-	if data.key then
-		achUnlocked[data.key] = os.time()
-		refreshAchievements()
-	end
-end)
+if achieveUnlockedRemote then
+	achieveUnlockedRemote.OnClientEvent:Connect(function(data)
+		if type(data) ~= "table" then return end
+		if data.key then
+			achUnlocked[data.key] = os.time()
+			refreshAchievements()
+		end
+	end)
+end
 
 -- ── State ──────────────────────────────────────────────────────────────────
 
@@ -1831,6 +1866,7 @@ local function selectSlot(n: number)
 		detailDesc.Text         = ""
 		detailSlotLabel.Text    = ""
 		detailUseBtn.Visible    = false
+		detailEquipBtn.Visible  = false
 		detailHotbarBtn.Visible = false
 		detailSplitBtn.Visible  = false
 		detailDropBtn.Visible   = false
@@ -1867,8 +1903,20 @@ local function selectSlot(n: number)
 	local isConsumable      = def.onConsume ~= nil
 	local isPlaceable       = def.category == "placeable"
 	local isTool            = def.category == "tool" or def.category == "weapon"
+	local isBackpack        = def.backpack ~= nil
+	local hasEquippedBP     = (player:GetAttribute("EquipSlot_Backpack") or "") ~= ""
 	detailUseBtn.Visible    = isConsumable or isPlaceable
 	detailUseBtn.Text       = isPlaceable and "PLACE" or "USE"
+	detailEquipBtn.Visible  = isBackpack
+	if isBackpack and hasEquippedBP then
+		detailEquipBtn.Text             = "EQUIPPED"
+		detailEquipBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		detailEquipBtn.TextColor3       = MUTED
+	else
+		detailEquipBtn.Text             = "EQUIP"
+		detailEquipBtn.BackgroundColor3 = Color3.fromRGB(30, 60, 80)
+		detailEquipBtn.TextColor3       = ACCENT
+	end
 	detailHotbarBtn.Visible = isTool or isConsumable or isPlaceable
 	detailSplitBtn.Visible  = qty > 1
 	detailDropBtn.Visible   = true
@@ -1895,6 +1943,15 @@ detailUseBtn.Activated:Connect(function()
 			end)
 		end
 	end
+end)
+
+detailEquipBtn.Activated:Connect(function()
+	if selectedSlot == 0 then return end
+	-- Don't equip if one is already equipped
+	local current = player:GetAttribute("EquipSlot_Backpack") or ""
+	if current ~= "" then return end
+	equipBackpackRemote:FireServer(selectedSlot)
+	selectSlot(0)
 end)
 
 detailHotbarBtn.Activated:Connect(function()
@@ -2214,7 +2271,7 @@ local function setTab(tab: string)
 	achTabBtn.BackgroundColor3   = tab == "achieve" and BG3 or BG2
 	if tab == "char" then refreshCharacter() end
 	if tab == "achieve" then
-		achieveRequestRemote:FireServer()
+		if achieveRequestRemote then achieveRequestRemote:FireServer() end
 		refreshAchievements()
 	end
 end

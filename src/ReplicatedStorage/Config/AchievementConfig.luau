@@ -23,7 +23,7 @@ local AchievementConfig = {}
 
 -- ── All 53 achievements ─────────────────────────────────────────────────
 
-AchievementConfig.Achievements: { AchievementDef } = {
+AchievementConfig.Achievements = {
 	-- Deaths (4)
 	{ key = "first_death",  name = "Welcome to the Wasteland", icon = "\u{1F480}", category = "Deaths",      counter = "deaths_total",       threshold = 1 },
 	{ key = "deaths_10",    name = "Getting Used to It",       icon = "\u{2620}",  category = "Deaths",      counter = "deaths_total",       threshold = 10 },
@@ -115,7 +115,7 @@ AchievementConfig.Achievements: { AchievementDef } = {
 -- ── Build lookup tables ─────────────────────────────────────────────────
 
 -- Achievements grouped by counter name for fast threshold checks
-AchievementConfig.ByCounter: { [string]: { AchievementDef } } = {}
+AchievementConfig.ByCounter = {}
 for _, ach in ipairs(AchievementConfig.Achievements) do
 	if not AchievementConfig.ByCounter[ach.counter] then
 		AchievementConfig.ByCounter[ach.counter] = {}
@@ -124,7 +124,7 @@ for _, ach in ipairs(AchievementConfig.Achievements) do
 end
 
 -- Achievement by key for quick lookups
-AchievementConfig.ByKey: { [string]: AchievementDef } = {}
+AchievementConfig.ByKey = {}
 for _, ach in ipairs(AchievementConfig.Achievements) do
 	AchievementConfig.ByKey[ach.key] = ach
 end
@@ -144,7 +144,7 @@ AchievementConfig.Categories = {
 -- AchievementService registers an EventBridge.onFire hook and uses these
 -- to auto-increment counters when game events fire.
 
-AchievementConfig.EventMappings: { [string]: { EventMapping } } = {
+AchievementConfig.EventMappings = {
 	player_death = {
 		{ counter = "deaths_total" },
 		{ counter = "deaths_starvation",  condition = function(d) return d.cause == "starvation" end },

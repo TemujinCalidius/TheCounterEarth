@@ -58,6 +58,8 @@ local openLootBagRemote       = makeRemote("OpenLootBag")
 local lootBagStateRemote      = makeRemote("LootBagState")
 local takeLootBagItemRemote   = makeRemote("TakeLootBagItem")
 local craftFailedRemote       = makeRemote("CraftFailed")
+local equipBackpackRemote     = makeRemote("EquipBackpack")
+local unequipBackpackRemote   = makeRemote("UnequipBackpack")
 
 -- ── Loot bag viewer tracking ────────────────────────────────────────────
 local lootBagViewers: { [Model]: { Player } } = {}
@@ -272,6 +274,22 @@ end
 
 local function refreshWeight(player: Player)
 	player:SetAttribute("CarryWeight", math.floor(computeWeight(player) * 100 + 0.5) / 100)
+end
+
+-- ── Backpack capacity recalc ──────────────────────────────────────────────
+
+local function recalcBackpackCapacity(player: Player)
+	local equipped = player:GetAttribute("EquipSlot_Backpack")
+	if type(equipped) == "string" and equipped ~= "" then
+		local def = ItemRegistry.get(equipped)
+		if def and def.backpack then
+			player:SetAttribute("MaxInvSlots", BASE_POCKET_SLOTS + (def.backpack.slots or 0))
+			player:SetAttribute("MaxCarryWeight", BASE_MAX_WEIGHT + (def.backpack.maxWeight or 0))
+			return
+		end
+	end
+	player:SetAttribute("MaxInvSlots", BASE_POCKET_SLOTS)
+	player:SetAttribute("MaxCarryWeight", BASE_MAX_WEIGHT)
 end
 
 -- ── Add / Remove ──────────────────────────────────────────────────────────
@@ -629,14 +647,22 @@ local function initPlayer(player: Player)
 
 	-- Refresh weight whenever any slot attribute changes (handles writes from
 	-- other services like ToolInventoryService that bypass addQty).
+	-- Also recalc capacity when backpack equip changes (e.g. PlayerStateService
+	-- restoring EquipSlot_Backpack from DataStore after initPlayer runs).
 	player.AttributeChanged:Connect(function(attrName)
 		if attrName:sub(1, 9) == "InvSlot_" or attrName:sub(1, 7) == "InvQty_" then
+			refreshWeight(player)
+		elseif attrName == "EquipSlot_Backpack" then
+			recalcBackpackCapacity(player)
 			refreshWeight(player)
 		end
 	end)
 
 	task.defer(function()
-		if player.Parent then refreshWeight(player) end
+		if player.Parent then
+			recalcBackpackCapacity(player)
+			refreshWeight(player)
+		end
 	end)
 
 	-- On respawn, re-grant Tool instances for all pinned hotbar slots.
@@ -1057,6 +1083,13 @@ invDumpAllFunc.OnInvoke = function(player: Player, deathCFrame: CFrame)
 		end
 	end
 
+	-- Dump equipped backpack into loot bag
+	local equippedBP = player:GetAttribute("EquipSlot_Backpack")
+	if type(equippedBP) == "string" and equippedBP ~= "" then
+		table.insert(items, { itemId = equippedBP, qty = 1 })
+		player:SetAttribute("EquipSlot_Backpack", nil)
+	end
+
 	-- Clear hotbar slots
 	for slot = 1, HOTBAR_SIZE do
 		player:SetAttribute(slotAttrName(slot), nil)
@@ -1083,7 +1116,8 @@ invDumpAllFunc.OnInvoke = function(player: Player, deathCFrame: CFrame)
 		end
 	end
 
-	-- Refresh weight to 0
+	-- Reset capacity to base (no backpack) and refresh weight to 0
+	recalcBackpackCapacity(player)
 	refreshWeight(player)
 
 	-- Create death loot bag at death position
@@ -1624,29 +1658,10 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 		pickupPrompt.Parent = placed.PrimaryPart or placed:FindFirstChildWhichIsA("BasePart")
 
 		pickupPrompt.Triggered:Connect(function(trigPlayer)
-			-- Owner only
-			if trigPlayer.UserId ~= placed:GetAttribute("_PlacedBy") then return end
+			-- Cannot pick up while someone is sleeping on it
+			if placed:GetAttribute("_OccupiedBy") then return end
 
-			-- Kick occupant off if someone is lying on it
-			local occupantId = placed:GetAttribute("_OccupiedBy")
-			if occupantId then
-				for _, p in Players:GetPlayers() do
-					if p.UserId == occupantId then
-						p:SetAttribute("IsResting", false)
-						p:SetAttribute("LyingOnBedroll", false)
-						local oChar = p.Character
-						local oHum = oChar and oChar:FindFirstChildOfClass("Humanoid")
-						if oHum then
-							oHum.WalkSpeed = GameplayConfig.Movement.WalkSpeed
-							oHum.JumpPower = GameplayConfig.Movement.JumpPower
-						end
-						break
-					end
-				end
-				placed:SetAttribute("_OccupiedBy", nil)
-			end
-
-			-- Return to inventory (fails if full — bedroll stays in world)
+			-- Any player can pick up (PvP raiding)
 			if addQty(trigPlayer, "bedroll", 1) then
 				placed:Destroy()
 			end
@@ -1685,6 +1700,75 @@ placeItemRemote.OnServerEvent:Connect(function(player, rawItemId, rawCFrame)
 			})
 		end
 	end
+end)
+
+-- ── Equip / Unequip Backpack ─────────────────────────────────────────────
+
+equipBackpackRemote.OnServerEvent:Connect(function(player, invSlotNum)
+	if type(invSlotNum) ~= "number" then return end
+	invSlotNum = math.floor(invSlotNum)
+	local maxSlots = getMaxSlots(player)
+	if invSlotNum < 1 or invSlotNum > maxSlots then return end
+
+	local itemId = getSlotItemId(player, invSlotNum)
+	if itemId == "" then return end
+
+	local def = ItemRegistry.get(itemId)
+	if not def or not def.backpack then return end
+
+	-- Cannot equip if a backpack is already equipped
+	local current = player:GetAttribute("EquipSlot_Backpack")
+	if type(current) == "string" and current ~= "" then return end
+
+	-- Remove from inventory slot
+	setSlot(player, invSlotNum, "", 0)
+	setSlotExpiries(player, invSlotNum, nil)
+	setSlotDurabilities(player, invSlotNum, nil)
+
+	-- Equip and recalc capacity
+	player:SetAttribute("EquipSlot_Backpack", itemId)
+	recalcBackpackCapacity(player)
+	refreshWeight(player)
+end)
+
+unequipBackpackRemote.OnServerEvent:Connect(function(player)
+	local equipped = player:GetAttribute("EquipSlot_Backpack")
+	if type(equipped) ~= "string" or equipped == "" then return end
+
+	local def = ItemRegistry.get(equipped)
+	if not def or not def.backpack then return end
+
+	-- Block unequip if any backpack-provided slots have items
+	local bpSlots = def.backpack.slots or 0
+	for n = BASE_POCKET_SLOTS + 1, BASE_POCKET_SLOTS + bpSlots do
+		local slotItem = getSlotItemId(player, n)
+		if slotItem ~= "" then
+			-- Notify client that backpack slots must be emptied first
+			craftFailedRemote:FireClient(player, "Empty backpack slots first")
+			return
+		end
+	end
+
+	-- Check there's room in pocket slots for the satchel itself
+	local hasFreeSlot = false
+	for n = 1, BASE_POCKET_SLOTS do
+		if getSlotItemId(player, n) == "" then
+			hasFreeSlot = true
+			break
+		end
+	end
+	if not hasFreeSlot then
+		craftFailedRemote:FireClient(player, "No free inventory slot")
+		return
+	end
+
+	-- Unequip: clear attribute first, then recalc, then add item back
+	player:SetAttribute("EquipSlot_Backpack", nil)
+	recalcBackpackCapacity(player)
+
+	-- Add satchel back to inventory (uses pocket slots only now)
+	addQty(player, equipped, 1)
+	refreshWeight(player)
 end)
 
 -- ── Spoilage loop ────────────────────────────────────────────────────────

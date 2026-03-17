@@ -415,7 +415,7 @@ Items.satchel_reed = {
 	weight = 0.3,
 	slotSize = { w = 2, h = 2 },
 	category = "container",
-	backpack = { gridW = 4, gridH = 4, maxWeight = 12 },
+	backpack = { slots = 10, maxWeight = 10 },
 	tags = { "container", "backpack", "tier0" },
 	icon = "",
 }
@@ -428,7 +428,7 @@ Items.pack_leather = {
 	weight = 0.8,
 	slotSize = { w = 2, h = 3 },
 	category = "container",
-	backpack = { gridW = 6, gridH = 8, maxWeight = 30 },
+	backpack = { slots = 20, maxWeight = 30 },
 	tags = { "container", "backpack", "tier1" },
 	icon = "",
 }
