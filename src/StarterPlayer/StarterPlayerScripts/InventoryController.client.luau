@@ -136,6 +136,7 @@ end
 local gui = Instance.new("ScreenGui")
 gui.Name           = "InventoryGui"
 gui.ResetOnSpawn   = false
+gui.DisplayOrder   = 5
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent         = player.PlayerGui
 
@@ -602,6 +603,7 @@ tradeQtyOverlay.Text               = ""
 tradeQtyOverlay.AutoButtonColor    = false
 tradeQtyOverlay.ZIndex             = 50
 tradeQtyOverlay.Visible            = false
+tradeQtyOverlay.Active             = false
 tradeQtyOverlay.Parent             = gui
 
 local tradeQtyPopup = Instance.new("Frame")
@@ -694,6 +696,7 @@ local tradeQtyMaxQty = 1
 
 local function hideTradeQtyPicker()
 	tradeQtyOverlay.Visible = false
+	tradeQtyOverlay.Active  = false
 	tradeQtyCallback = nil
 end
 
@@ -705,6 +708,7 @@ local function showTradeQtyPicker(itemId: string, maxQty: number, callback: (num
 	tradeQtyMaxQty = maxQty
 	tradeQtyCallback = callback
 	tradeQtyOverlay.Visible = true
+	tradeQtyOverlay.Active  = true
 	tradeQtyBox:CaptureFocus()
 end
 
