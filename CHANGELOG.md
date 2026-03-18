@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.19.1] - Mobile bag button fix
+
+### Fixed
+- **Inventory bag button unresponsive on mobile/iPad** — InventoryGui had no DisplayOrder (defaulted to 0, behind GameplayHud at 2); full-screen tradeQtyOverlay TextButton could intercept touch even when hidden. Set DisplayOrder=5 and toggle Active on overlay.
+
+---
+
 ## [0.19.0] - Tier 0 oak tree harvesting system
 
 ### Added
