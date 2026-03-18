@@ -38,8 +38,9 @@ local invAdd = bindables:WaitForChild("InventoryAdd") :: BindableFunction
 
 
 -- ── Template lookup ──────────────────────────────────────────────────────
-local scatterModels = ServerStorage:FindFirstChild("ScatterModels")
-local scatterFolder = Workspace:FindFirstChild("Scatter")
+local scatterModels = ServerStorage:WaitForChild("ScatterModels", 10)
+local scatterFolder = Workspace:WaitForChild("Scatter", 10)
+local scatterZones = Workspace:FindFirstChild("ScatterZones")  -- invisible zone Parts, must exclude from raycasts
 
 local function findTemplate(name: string): Instance?
 	if not scatterModels then return nil end
@@ -66,8 +67,9 @@ end
 -- client harvest scan can find them. Each has a TrunkRef ObjectValue linking
 -- back to the trunk model.
 
--- Forward declaration (defined after regrowTree)
-local setupCutPointWatcher: (Model) -> ()
+-- Forward declarations (defined later in file)
+local setupCutPointWatcher: (Model, { Model }, Vector3) -> ()
+local measureSegment: (Vector3) -> (number, number)
 
 local function createCutPointMarker(offset: CFrame, index: number, trunkModel: Model): Model
 	local marker = Instance.new("Model")
@@ -76,7 +78,7 @@ local function createCutPointMarker(offset: CFrame, index: number, trunkModel: M
 	marker:SetAttribute("_CutPointIndex", index)
 	marker:SetAttribute("_NodeHealth", CUT_POINT_HITS)
 	marker:SetAttribute("_NodeMaxHealth", CUT_POINT_HITS)
-	marker:SetAttribute("_HitCooldown", 1.2)
+	marker:SetAttribute("_HitCooldown", TreeConfig.Tier0HitCooldown or 1.0)
 	marker:SetAttribute("_RequireTool", "tree")
 	marker:SetAttribute("_ScatterItem", "oak_tree")  -- for sound mapping
 	marker:SetAttribute("_HarvestYieldMin", 0)
@@ -153,83 +155,6 @@ local function createCutPointMarker(offset: CFrame, index: number, trunkModel: M
 	return marker
 end
 
--- ── Log Segment creation ─────────────────────────────────────────────────
-
-local function createLogSegment(position: Vector3)
-	local template = findTemplate("oak_log_segment")
-	local model: Model
-
-	if template then
-		if template:IsA("Model") then
-			model = template:Clone()
-		else
-			model = Instance.new("Model")
-			local part = template:Clone()
-			part.Parent = model
-			model.PrimaryPart = part
-		end
-	else
-		-- Fallback: small brown log block
-		model = Instance.new("Model")
-		local part = Instance.new("Part")
-		part.Name = "Body"
-		part.Size = Vector3.new(2, 0.8, 0.8)
-		part.Color = Color3.fromRGB(120, 80, 40)
-		part.Material = Enum.Material.SmoothPlastic
-		part.Parent = model
-		model.PrimaryPart = part
-	end
-
-	model.Name = "Oak Log"
-	model:SetAttribute("_TrunkSegment", true)
-	model:SetAttribute("_LogItemId", "oak_log")
-
-	-- Anchor and position
-	for _, desc in model:GetDescendants() do
-		if desc:IsA("BasePart") then
-			desc.Anchored = true
-			desc.CanCollide = true
-		end
-	end
-
-	-- Raycast to ground for placement
-	local rayResult = Workspace:Raycast(position + Vector3.new(0, 3, 0), Vector3.new(0, -20, 0), RaycastParams.new())
-	local groundY = rayResult and rayResult.Position.Y or position.Y
-	local _, modelSize = model:GetBoundingBox()
-	model:PivotTo(CFrame.new(position.X, groundY + modelSize.Y * 0.5, position.Z)
-		* CFrame.Angles(0, math.random() * math.pi * 2, 0))
-
-	-- ProximityPrompt for pickup
-	local rootPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-	if rootPart then
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Pick Up"
-		prompt.ObjectText = "Oak Log"
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0
-		prompt.MaxActivationDistance = 8
-		prompt.RequiresLineOfSight = false
-		prompt.Parent = rootPart
-
-		prompt.Triggered:Connect(function(pickupPlayer)
-			if not model.Parent then return end
-			local logItemId = model:GetAttribute("_LogItemId") or "oak_log"
-			if invAdd:Invoke(pickupPlayer, logItemId, 1) then
-				model:Destroy()
-			end
-		end)
-	end
-
-	model.Parent = scatterFolder or Workspace
-
-	-- Auto-despawn
-	task.delay(LOG_DESPAWN_SECS, function()
-		if model and model.Parent then model:Destroy() end
-	end)
-
-	return model
-end
-
 -- ── Fall damage check ────────────────────────────────────────────────────
 
 local function checkFallDamage(treeModel: Model, damagedPlayers: { [Player]: boolean })
@@ -259,6 +184,72 @@ local function checkFallDamage(treeModel: Model, damagedPlayers: { [Player]: boo
 			end
 		end
 	end
+end
+
+-- ── Stump creation ─────────────────────────────────────────────────────
+
+local function spawnStump(basePos: Vector3, scatterItemId: string, originalCFrame: CFrame): Model
+	local stumpTemplate = findTemplate("oak_tree_stump")
+	local stump: Model
+	if stumpTemplate then
+		if stumpTemplate:IsA("Model") then
+			stump = stumpTemplate:Clone()
+		else
+			stump = Instance.new("Model")
+			local p = stumpTemplate:Clone()
+			p.Parent = stump
+			stump.PrimaryPart = p
+		end
+	else
+		-- Fallback: short upright block (placeholder stump)
+		stump = Instance.new("Model")
+		local p = Instance.new("Part")
+		p.Name = "Body"
+		p.Size = Vector3.new(2, 1.5, 2)
+		p.Color = Color3.fromRGB(100, 70, 35)
+		p.Anchored = true
+		p.CanCollide = true
+		p.Material = Enum.Material.SmoothPlastic
+		p.Parent = stump
+		stump.PrimaryPart = p
+	end
+
+	stump.Name = "Oak Stump"
+	stump:SetAttribute("_TreeStump", true)
+	stump:SetAttribute("_StumpVariant", scatterItemId)
+	stump:SetAttribute("_ScatterItem", scatterItemId)
+
+	-- Position stump at original tree base (upright, only Y rotation from original tree)
+	if stump.PrimaryPart then
+		local bbCFrame, stumpSize = stump:GetBoundingBox()
+		local pivotY = stump:GetPivot().Position.Y
+		local bbBottomY = bbCFrame.Position.Y - stumpSize.Y * 0.5
+		local pivotAboveBottom = pivotY - bbBottomY
+
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local stumpExcludeList = { scatterFolder }
+		if scatterZones then table.insert(stumpExcludeList, scatterZones) end
+		rayParams.FilterDescendantsInstances = stumpExcludeList
+		local groundRay = Workspace:Raycast(
+			basePos + Vector3.new(0, 5, 0), Vector3.new(0, -30, 0), rayParams
+		)
+		local groundY = groundRay and groundRay.Position.Y or basePos.Y
+
+		local _, origYRot, _ = originalCFrame:ToEulerAnglesYXZ()
+		stump:PivotTo(CFrame.new(basePos.X, groundY + pivotAboveBottom, basePos.Z)
+			* CFrame.Angles(0, origYRot, 0))
+	end
+
+	for _, desc in stump:GetDescendants() do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = true
+		end
+	end
+
+	stump.Parent = scatterFolder or Workspace
+	return stump
 end
 
 -- ── Tree Fell sequence ───────────────────────────────────────────────────
@@ -306,28 +297,69 @@ local function fellTree(treeModel: Model, fellingPlayer: Player)
 		end
 	end
 
-	-- Get the tree's bounding box to calculate pivot at base
-	local _, treeSize = treeModel:GetBoundingBox()
+	-- Get the tree's bounding box to calculate hinge at base
+	local bbCFrame, treeSize = treeModel:GetBoundingBox()
 	local treeHeight = treeSize.Y
 
-	-- Tween the tree falling: rotate 90° around base
-	-- We'll do this by moving the PrimaryPart in steps via Heartbeat
 	local rootPart = treeModel.PrimaryPart or treeModel:FindFirstChildWhichIsA("BasePart")
 	if not rootPart then return end
 
-	local startTime = os.clock()
-	local damagedPlayers: { [Player]: boolean } = {}
+	-- Save the tree's actual current pivot so t=0 matches exactly (no jump)
+	local originalPivot = treeModel:GetPivot()
 
-	-- Calculate the axis of rotation (perpendicular to fall direction, horizontal)
-	-- We want to rotate the tree so it tips over in the fallDir direction.
-	-- The hinge axis is perpendicular to fallDir and horizontal.
+	-- Hinge point: bottom of bounding box
+	local basePos = Vector3.new(bbCFrame.Position.X, bbCFrame.Position.Y - treeHeight * 0.5, bbCFrame.Position.Z)
+
+	-- Rotation axis: perpendicular to fall direction, horizontal
 	local rotAxis = Vector3.new(0, 1, 0):Cross(fallDir).Unit
 
-	-- Base pivot point (bottom of tree)
-	local basePivot = originalPos - Vector3.new(0, treeHeight * 0.5, 0)
+	-- Offset from hinge to the model's pivot (rotated during tween)
+	local pivotOffsetFromBase = originalPivot.Position - basePos
 
-	-- Preserve original Y rotation
-	local _, origYRot, _ = originalCFrame:ToEulerAnglesYXZ()
+	-- Spawn stump immediately (visible as tree starts tipping)
+	local stump = spawnStump(basePos, scatterItemId, originalCFrame)
+
+	-- Stump clearance for trunk placement
+	local stumpClearance = 1.5
+	if stump then
+		local _, stumpSize = stump:GetBoundingBox()
+		stumpClearance = math.max(stumpSize.X, stumpSize.Z) * 0.5 + 0.5
+	end
+
+	-- Measure segment length
+	local segLength, _ = measureSegment(fallDir)
+
+	-- Raycast ground Y at each segment position from tree-top height.
+	-- Tree top is guaranteed to be above terrain at any nearby position.
+	local rayOriginY = basePos.Y + treeHeight + 5  -- a bit above tree top for safety
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local excludeList = { scatterFolder }
+	if scatterZones then table.insert(excludeList, scatterZones) end
+	rayParams.FilterDescendantsInstances = excludeList
+
+	local groundYValues: { number } = {}
+	for i = 1, 3 do
+		local segOffset = stumpClearance + (i - 0.5) * segLength
+		local segXZ = basePos + fallDir * segOffset
+		local ray = Workspace:Raycast(
+			Vector3.new(segXZ.X, rayOriginY, segXZ.Z),
+			Vector3.new(0, -60, 0), rayParams
+		)
+		local groundY = ray and ray.Position.Y or basePos.Y
+		table.insert(groundYValues, groundY)
+		warn(("[TreeService] Raycast seg %d: origin Y=%.1f, hit=%s, groundY=%.1f, hitInstance=%s"):format(
+			i, rayOriginY, tostring(ray ~= nil), groundY,
+			ray and ray.Instance and ray.Instance:GetFullName() or "nil"
+		))
+	end
+	warn(("[TreeService] basePos Y=%.1f, treeHeight=%.1f, segLength=%.1f, stumpClearance=%.1f"):format(
+		basePos.Y, treeHeight, segLength, stumpClearance
+	))
+
+	local startTime = os.clock()
+	local damagedPlayers: { [Player]: boolean } = {}
+	local DAMAGE_DELAY = 1.0
 
 	local fallConnection: RBXScriptConnection
 	fallConnection = RunService.Heartbeat:Connect(function()
@@ -339,90 +371,154 @@ local function fellTree(treeModel: Model, fellingPlayer: Player)
 		local elapsed = os.clock() - startTime
 		local t = math.min(elapsed / FALL_DURATION, 1)
 
-		-- Ease-in for acceleration (gravity feel)
 		local easedT = t * t
-
-		-- Rotate around base pivot: hinge at base, tip over away from player
 		local angle = easedT * math.rad(90)
-		local pivotCFrame = CFrame.new(basePivot)
-			* CFrame.fromAxisAngle(rotAxis, angle)
-			* CFrame.new(0, treeHeight * 0.5, 0)
-			* CFrame.Angles(0, origYRot, 0)
+		local fallRotation = CFrame.fromAxisAngle(rotAxis, angle)
+		local rotatedOffset = fallRotation:VectorToWorldSpace(pivotOffsetFromBase)
+		local newPivotPos = basePos + rotatedOffset
+		local pivotCFrame = CFrame.new(newPivotPos) * fallRotation * originalPivot.Rotation
 
 		treeModel:PivotTo(pivotCFrame)
 
-		-- Check for fall damage during the fall
-		checkFallDamage(treeModel, damagedPlayers)
+		if elapsed >= DAMAGE_DELAY then
+			checkFallDamage(treeModel, damagedPlayers)
+		end
 
 		if t >= 1 then
 			fallConnection:Disconnect()
 
-			-- Fall complete — transition to stump + trunk phase
 			task.defer(function()
-				onTreeLanded(treeModel, basePivot, scatterItemId, originalCFrame, fellingPlayer)
+				onTreeLanded(treeModel, basePos, scatterItemId, originalCFrame, stump, groundYValues)
 			end)
 		end
 	end)
 end
 
--- ── Post-fall: create stump + set up trunk with cut points ───────────────
+-- ── Trunk helpers ────────────────────────────────────────────────────────
 
-function onTreeLanded(treeModel: Model, basePos: Vector3, scatterItemId: string, originalCFrame: CFrame, _fellingPlayer: Player)
-	if not treeModel.Parent then return end
-
-	-- 1. Spawn stump at original position
-	local stumpTemplate = findTemplate("oak_tree_stump")
-	local stump: Model
-	if stumpTemplate then
-		if stumpTemplate:IsA("Model") then
-			stump = stumpTemplate:Clone()
+-- Clone an oak_log_segment template for visual use or physics pickup.
+local function cloneLogSegment(index: number): Model
+	local template = findTemplate("oak_log_segment")
+	local model: Model
+	if template then
+		if template:IsA("Model") then
+			model = template:Clone()
 		else
-			stump = Instance.new("Model")
-			local p = stumpTemplate:Clone()
-			p.Parent = stump
-			stump.PrimaryPart = p
+			model = Instance.new("Model")
+			local part = template:Clone()
+			part.Parent = model
+			model.PrimaryPart = part
 		end
 	else
-		-- Fallback: short upright block (placeholder stump)
-		stump = Instance.new("Model")
-		local p = Instance.new("Part")
-		p.Name = "Body"
-		p.Size = Vector3.new(2, 1.5, 2)
-		p.Color = Color3.fromRGB(100, 70, 35)
-		p.Anchored = true
-		p.CanCollide = true
-		p.Material = Enum.Material.SmoothPlastic
-		p.Parent = stump
-		stump.PrimaryPart = p
+		model = Instance.new("Model")
+		local part = Instance.new("Part")
+		part.Name = "Body"
+		part.Size = Vector3.new(2, 0.8, 0.8)
+		part.Color = Color3.fromRGB(120, 80, 40)
+		part.Material = Enum.Material.Wood
+		part.Parent = model
+		model.PrimaryPart = part
 	end
+	model.Name = "Log Segment " .. index
+	return model
+end
 
-	stump.Name = "Oak Stump"
-	stump:SetAttribute("_TreeStump", true)
-	stump:SetAttribute("_StumpVariant", scatterItemId)
-	stump:SetAttribute("_ScatterItem", scatterItemId)
-
-	-- Position stump at original tree base (upright, only Y rotation from original tree)
-	if stump.PrimaryPart then
-		local _, stumpSize = stump:GetBoundingBox()
-		local _, origYRot, _ = originalCFrame:ToEulerAnglesYXZ()
-		stump:PivotTo(CFrame.new(basePos + Vector3.new(0, stumpSize.Y * 0.5, 0))
-			* CFrame.Angles(0, origYRot, 0))
+-- Measure a log segment's PrimaryPart dimensions.
+-- Returns segLength (along trunk = PrimaryPart Z) and segHeight (vertical = PrimaryPart Y).
+-- Uses PrimaryPart size directly to avoid bounding-box inflation from decorative parts.
+measureSegment = function(_direction: Vector3): (number, number)
+	local model = cloneLogSegment(0)
+	local primary = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+	local segLen = 2
+	local segH = 1
+	if primary then
+		-- Log segments are oriented so Z = length, Y = height (lying on ground)
+		segLen = primary.Size.Z
+		segH = primary.Size.Y
+		if segLen < 0.5 then segLen = 2 end
+		if segH < 0.2 then segH = 1 end
 	end
+	model:Destroy()
+	return segLen, segH
+end
 
-	for _, desc in stump:GetDescendants() do
+-- Spawn a pickup-able log segment with physics kick at a world position.
+local function spawnPickupLog(position: Vector3, direction: Vector3, kickDir: Vector3, index: number)
+	local model = cloneLogSegment(index)
+	model:SetAttribute("_TrunkSegment", true)
+	model:SetAttribute("_LogItemId", "oak_log")
+
+	-- Orient and place
+	local cf = CFrame.lookAt(position, position + Vector3.new(direction.X, 0, direction.Z))
+	model:PivotTo(cf)
+
+	-- All parts: unanchored, collidable, for physics
+	for _, desc in model:GetDescendants() do
 		if desc:IsA("BasePart") then
-			desc.Anchored = true
+			desc.Anchored = false
 			desc.CanCollide = true
 		end
 	end
 
-	stump.Parent = scatterFolder or Workspace
+	model.Parent = scatterFolder or Workspace
 
-	-- 2. Destroy the original tree model and replace it with a brown trunk
+	-- Kick it away
+	local rootPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+	if rootPart then
+		local impulse = kickDir * 6 + Vector3.new(0, 3, 0)
+		rootPart:ApplyImpulse(impulse * rootPart.AssemblyMass)
+		rootPart:ApplyAngularImpulse(Vector3.new(
+			(math.random() - 0.5) * 3,
+			(math.random() - 0.5) * 1,
+			(math.random() - 0.5) * 3
+		) * rootPart.AssemblyMass)
+	end
+
+	-- Re-anchor after physics settles
+	task.delay(4, function()
+		if model and model.Parent then
+			for _, desc in model:GetDescendants() do
+				if desc:IsA("BasePart") then desc.Anchored = true end
+			end
+		end
+	end)
+
+	-- ProximityPrompt for pickup
+	if rootPart then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Pick Up"
+		prompt.ObjectText = "Oak Log"
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 8
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = rootPart
+
+		prompt.Triggered:Connect(function(pickupPlayer)
+			if not model.Parent then return end
+			if invAdd:Invoke(pickupPlayer, "oak_log", 1) then
+				model:Destroy()
+			end
+		end)
+	end
+
+	-- Auto-despawn
+	task.delay(LOG_DESPAWN_SECS, function()
+		if model and model.Parent then model:Destroy() end
+	end)
+end
+
+-- ── Post-fall: place anchored trunk at ground level ─────────────────────
+-- No invisible core, no physics. Each segment is anchored to the terrain
+-- using pivotAboveBottom (same technique as stump placement, which works).
+-- On chop: visual segment vanishes, pickup log spawns with physics.
+
+function onTreeLanded(treeModel: Model, basePos: Vector3, scatterItemId: string, originalCFrame: CFrame, stump: Model, groundYValues: { number })
+	if not treeModel.Parent then return end
+
+	-- 1. Capture the fallen tree's direction before destroying it
 	local trunkBBCF, trunkSize = treeModel:GetBoundingBox()
-	local trunkLength = math.max(trunkSize.X, trunkSize.Y, trunkSize.Z)
 
-	-- Determine trunk direction (longest axis of bounding box)
 	local trunkDir: Vector3
 	if trunkSize.X >= trunkSize.Y and trunkSize.X >= trunkSize.Z then
 		trunkDir = trunkBBCF.RightVector
@@ -431,62 +527,86 @@ function onTreeLanded(treeModel: Model, basePos: Vector3, scatterItemId: string,
 	else
 		trunkDir = trunkBBCF.LookVector
 	end
-	local trunkCenter = trunkBBCF.Position
 
-	-- Destroy old tree model
 	treeModel:Destroy()
 
-	-- Create a new brown trunk lying on the ground
-	local TRUNK_COLOR = Color3.fromRGB(120, 80, 40)
-	local trunkDiameter = 1.8
+	local trunkDirFlat = Vector3.new(trunkDir.X, 0, trunkDir.Z)
+	if trunkDirFlat.Magnitude < 0.1 then trunkDirFlat = Vector3.new(1, 0, 0) end
+	trunkDirFlat = trunkDirFlat.Unit
+
+	-- 2. Compute pivotAboveBottom from a reference segment
+	--    Same technique as stump placement: measures actual pivot offset
+	--    so PivotTo places the model's bounding box bottom exactly on terrain.
+	local refSeg = cloneLogSegment(0)
+	local refOrient = CFrame.lookAt(Vector3.zero, Vector3.new(trunkDirFlat.X, 0, trunkDirFlat.Z))
+	refSeg:PivotTo(refOrient)
+	local refBBCF, refBBSize = refSeg:GetBoundingBox()
+	local refPivotY = refSeg:GetPivot().Position.Y
+	local refBBBottomY = refBBCF.Position.Y - refBBSize.Y * 0.5
+	local pivotAboveBottom = refPivotY - refBBBottomY
+	local bbHalfHeight = refBBSize.Y * 0.5
+	refSeg:Destroy()
+
+	-- 3. Compute segment layout
+	local segLength, _ = measureSegment(trunkDirFlat)
+	local stumpClearance = 1.5
+	if stump then
+		local _, stumpSize = stump:GetBoundingBox()
+		stumpClearance = math.max(stumpSize.X, stumpSize.Z) * 0.5 + 0.5
+	end
+
+	-- Use average ground Y so all 3 segments sit at the same height (joined trunk)
+	local avgGroundY = (groundYValues[1] + groundYValues[2] + groundYValues[3]) / 3
+	warn(("[TreeService] pivotAboveBottom=%.2f, bbHalfHeight=%.2f, avgGroundY=%.1f, placement Y=%.1f"):format(
+		pivotAboveBottom, bbHalfHeight, avgGroundY, avgGroundY + pivotAboveBottom
+	))
+
+	-- 4. Build trunk container model
 	local trunk = Instance.new("Model")
 	trunk.Name = "Fallen Oak"
 	trunk:SetAttribute("_TreePhase", "trunk")
 	trunk:SetAttribute("_ScatterItem", scatterItemId)
 
-	local trunkPart = Instance.new("Part")
-	trunkPart.Name = "Trunk"
-	-- Size.Z = length (aligns with LookVector from CFrame.lookAt)
-	trunkPart.Size = Vector3.new(trunkDiameter, trunkDiameter, trunkLength * 0.75)
-	trunkPart.Color = TRUNK_COLOR
-	trunkPart.Material = Enum.Material.SmoothPlastic
-	trunkPart.Anchored = true
-	trunkPart.CanCollide = true
-	trunkPart.Parent = trunk
-	trunk.PrimaryPart = trunkPart
+	-- Place 3 visual log segments end-to-end at uniform height
+	local visualSegments: { Model } = {}
+	for i = 1, 3 do
+		local seg = cloneLogSegment(i)
+		local segOffset = stumpClearance + (i - 0.5) * segLength
+		local segXZ = basePos + trunkDirFlat * segOffset
 
-	-- Raycast to find ground at trunk center
-	local groundRay = Workspace:Raycast(
-		trunkCenter + Vector3.new(0, 5, 0),
-		Vector3.new(0, -30, 0),
-		RaycastParams.new()
-	)
-	local groundY = groundRay and groundRay.Position.Y or (trunkCenter.Y - 2)
+		seg:PivotTo(CFrame.lookAt(
+			Vector3.new(segXZ.X, avgGroundY + pivotAboveBottom, segXZ.Z),
+			Vector3.new(segXZ.X + trunkDirFlat.X, avgGroundY + pivotAboveBottom, segXZ.Z + trunkDirFlat.Z)
+		))
 
-	-- Orient trunk along the fall direction, lying flat on ground
-	local lookAt = trunkCenter + trunkDir
-	trunkPart.CFrame = CFrame.lookAt(
-		Vector3.new(trunkCenter.X, groundY + trunkDiameter * 0.5, trunkCenter.Z),
-		Vector3.new(lookAt.X, groundY + trunkDiameter * 0.5, lookAt.Z)
-	)
+		for _, desc in seg:GetDescendants() do
+			if desc:IsA("BasePart") then
+				desc.Anchored = true
+				desc.CanCollide = true
+			end
+		end
+
+		seg.Parent = trunk
+		table.insert(visualSegments, seg)
+
+		if i == 1 then
+			trunk.PrimaryPart = seg.PrimaryPart or seg:FindFirstChildWhichIsA("BasePart")
+		end
+	end
 
 	trunk.Parent = scatterFolder or Workspace
 
-	-- 3. Add cut point markers along the trunk (LookVector = Z axis = trunk length)
-	local trunkAxis = trunkPart.CFrame.LookVector
-	local trunkPos = trunkPart.CFrame.Position
-	local cpOffset = trunkPart.Size.Z * 0.3  -- offset along trunk length (Z)
-	local cpYOffset = trunkPart.Size.Y * 0.5  -- sit on top of trunk
-	local cp1Pos = trunkPos - trunkAxis * cpOffset + Vector3.new(0, cpYOffset, 0)
-	local cp2Pos = trunkPos + trunkAxis * cpOffset + Vector3.new(0, cpYOffset, 0)
+	-- 5. Place cut point markers between segments
+	for cpIdx = 1, 2 do
+		local cpOffset = stumpClearance + cpIdx * segLength
+		local cpXZ = basePos + trunkDirFlat * cpOffset
+		createCutPointMarker(CFrame.new(cpXZ.X, avgGroundY + bbHalfHeight + 1.5, cpXZ.Z), cpIdx, trunk)
+	end
 
-	createCutPointMarker(CFrame.new(cp1Pos), 1, trunk)
-	createCutPointMarker(CFrame.new(cp2Pos), 2, trunk)
+	-- 6. Set up cut point watcher
+	setupCutPointWatcher(trunk, visualSegments, trunkDirFlat)
 
-	-- 4. Set up cut point watcher (shrinks trunk on first cut, destroys on second)
-	setupCutPointWatcher(trunk)
-
-	-- 5. Schedule regrowth on the stump
+	-- 7. Schedule regrowth on the stump
 	local respawnDelay = RESPAWN_MIN + math.random() * (RESPAWN_MAX - RESPAWN_MIN)
 	task.delay(respawnDelay, function()
 		regrowTree(stump, scatterItemId, originalCFrame)
@@ -570,7 +690,11 @@ end
 -- Each has a TrunkRef ObjectValue pointing at the trunk model.
 -- When InventoryService destroys a cut point (HP reaches 0), we detect it here.
 
-setupCutPointWatcher = function(trunkModel: Model)
+setupCutPointWatcher = function(
+	trunkModel: Model,
+	visualSegments: { Model },
+	trunkDirFlat: Vector3
+)
 	-- Find cut points in Scatter folder that reference this trunk
 	local targetFolder = scatterFolder or Workspace
 	local cutPoints: { Model } = {}
@@ -583,61 +707,60 @@ setupCutPointWatcher = function(trunkModel: Model)
 		end
 	end
 
-	local cutPointCount = #cutPoints
+	-- Perpendicular to trunk (for sideways kick on middle segment)
+	local sideDir = Vector3.new(0, 1, 0):Cross(trunkDirFlat).Unit
+
 	local cutPointsDestroyed = 0
 
 	-- Watch each cut point for destruction (InventoryService destroys them when HP=0)
 	for _, cp in cutPoints do
-		-- Capture the position and index before AncestryChanged fires
-		local savedPos: Vector3? = nil
 		local savedIndex: number = cp:GetAttribute("_CutPointIndex") or 0
-		local hitTarget = cp:FindFirstChild("HitTarget")
-		if hitTarget and hitTarget:IsA("BasePart") then
-			savedPos = hitTarget.Position
-		end
 
 		cp.AncestryChanged:Connect(function()
 			if cp.Parent then return end -- only care about removal
 			cutPointsDestroyed += 1
 
-			local cpPos = savedPos or (getModelPosition(trunkModel) or Vector3.zero)
+			-- Hide the visual segment + spawn a physics pickup log
+			local segIndex: number
+			local kickDir: Vector3
 
-			if cutPointsDestroyed < cutPointCount then
-				-- First cut: shrink trunk from the chopped end and spawn 1 log
-				local trunkPart = trunkModel.PrimaryPart
-				if trunkPart and trunkPart:IsA("BasePart") then
-					local oldSize = trunkPart.Size
-					local newLength = oldSize.Z * 0.6
-					local shrinkAmount = oldSize.Z - newLength
-					trunkPart.Size = Vector3.new(oldSize.X, oldSize.Y, newLength)
+			if savedIndex == 1 then
+				segIndex = 1
+				kickDir = -trunkDirFlat  -- kick toward stump
+			elseif savedIndex == 2 then
+				segIndex = 3
+				kickDir = trunkDirFlat   -- kick away from stump
+			end
 
-					-- Shift trunk away from the cut side so it shrinks from that end
-					-- Cut point 1 is at negative LookVector end, cut point 2 at positive
-					local shiftDir = trunkPart.CFrame.LookVector
-					if savedIndex == 1 then
-						-- Chopped the negative end → shift trunk toward positive end
-						shiftDir = shiftDir
-					else
-						-- Chopped the positive end → shift trunk toward negative end
-						shiftDir = -shiftDir
+			if segIndex then
+				-- Get spawn position from the visual segment's actual position
+				local visSeg = visualSegments[segIndex]
+				local visPos = visSeg and getModelPosition(visSeg)
+
+				-- Hide visual segment
+				if visSeg and visSeg.Parent then
+					for _, desc in visSeg:GetDescendants() do
+						if desc:IsA("BasePart") then desc.Transparency = 1 end
 					end
-					trunkPart.CFrame = trunkPart.CFrame + shiftDir * (shrinkAmount * 0.5)
 				end
 
-				local offset = Vector3.new(
-					(math.random() - 0.5) * 3, 0, (math.random() - 0.5) * 3
-				)
-				createLogSegment(cpPos + offset)
-			else
-				-- Final cut: destroy trunk, spawn 2 logs
-				for _ = 1, 2 do
-					local offset = Vector3.new(
-						(math.random() - 0.5) * 4, 0, (math.random() - 0.5) * 4
-					)
-					createLogSegment(cpPos + offset)
+				-- Spawn pickup log at the visual segment's actual position
+				if visPos then
+					spawnPickupLog(visPos, trunkDirFlat, kickDir, segIndex)
 				end
+			end
 
-				task.delay(0.5, function()
+			-- After both cut points are chopped, spawn middle log and destroy trunk
+			if cutPointsDestroyed >= 2 then
+				task.delay(0.3, function()
+					-- Spawn middle segment from its actual position
+					local midSeg = visualSegments[2]
+					local midPos = midSeg and getModelPosition(midSeg)
+					if midPos then
+						spawnPickupLog(midPos, trunkDirFlat, sideDir, 2)
+					end
+
+					-- Destroy the entire trunk
 					if trunkModel and trunkModel.Parent then
 						trunkModel:Destroy()
 					end

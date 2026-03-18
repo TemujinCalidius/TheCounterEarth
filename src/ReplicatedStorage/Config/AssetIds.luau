@@ -44,13 +44,17 @@ return {
 	UITextures = {
 		PanelBg = "rbxassetid://106957994731853",
 	},
+	Textures = {
+		Bark      = "rbxassetid://84092103585767",
+		TreeRings = "rbxassetid://76074101848959",
+	},
 	Animations = {
 		Eating = "rbxassetid://113331921997993",
 		Sitting = "rbxassetid://138225082049466",
 		Sleeping = "rbxassetid://132999422106643",
 		HarvestKnife = "rbxassetid://112989240149329",
 		HarvestPickaxe = "",  -- placeholder for mining
-		HarvestAxe = "",      -- placeholder for chopping
+		HarvestAxe = "rbxassetid://140531036694625",
 		Crafting = "rbxassetid://120762235566284",
 	},
 	AchievementIcons = {
@@ -125,6 +129,10 @@ return {
 		consume_50 = "rbxassetid://97316520585803",
 		consume_200 = "rbxassetid://123398459540836",
 	},
+	Particles = {
+		Leaf     = "rbxassetid://127514762909540",
+		WoodChip = "rbxassetid://112909682582631",
+	},
 	Sounds = {
 		Breathing = "rbxassetid://109256307915148",
 		Heartbeat = "rbxassetid://90073835550134",
@@ -132,7 +140,7 @@ return {
 		HarvestReed  = "rbxassetid://112146767048601",
 		Crafting     = "rbxassetid://97194221591864",
 		ToolBreak    = "rbxassetid://93653850093139",
-		ChopWood     = "",  -- placeholder: axe impact on wood
+		ChopWood     = "rbxassetid://99100344032755",
 		LeafRustle   = "",  -- placeholder: leaves rustling
 		TreeFall     = "",  -- placeholder: creaking + crash
 	},

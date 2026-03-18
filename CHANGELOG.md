@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.19.5] - Tree trunk landing, health bars, and harvest polish
+
+### Added
+- **Node health bars** — chopping trees and cut points now shows a health bar above the node (green → yellow → red as HP drops, auto-hides after 4 seconds of inactivity, visible up to 35 studs in 3rd person)
+- **Chopping animations** — per-tool harvest animations play on hit (axe swing for trees/cut points, knife slash for reeds, pickaxe strike for stone), selected from equipped tool kind
+- **Chopping sounds** — `oak_tree → ChopWood` sound mapping plays spatial audio at the node on each hit; tool break sound on durability depletion
+
+### Fixed
+- **Trunk segments floating in mid-air** — raycasts for trunk ground placement were hitting invisible ScatterZone parts instead of terrain; now excludes both `ScatterZones` and `Scatter` folder from all TreeService raycasts (trunk segments, stump placement)
+- **Stump placement floating** — same ScatterZone raycast issue affected stump ground detection; fixed with shared exclude list
+
+### Changed
+- **Hit cooldown reduced** — tree/cut point hit cooldown lowered from 1.8s to 1.0s for snappier chopping feel
+- **Tree shake scaling** — trees and cut points shake at 0.6x intensity for more realistic heavy-object feel; cut points shake the parent trunk model via TrunkRef link
+
+---
+
+## [0.19.4] - Click-through and death loot exploit fixes
+
+### Fixed
+- **Clicking inventory triggers world actions** — left-clicking on inventory items/tabs/buttons also fired harvest hits or weapon attacks in the game world. The `gameProcessed` guard in HudController only checked Touch inputs, not mouse clicks. Now all input types are blocked when a GUI element handles the click.
+- **Death loot pickup exploit** — dying players could spam-pickup their own death loot bag during the death animation, respawning with all gear (fresh durability and spoil timers). Added `Humanoid.Health > 0` check to both `OpenLootBag` and `TakeLootBagItem` server remotes.
+
+### Changed
+- **Reed respawn reduced to 15-30s** (was 60-180s) for testing. Will increase for production.
+
+---
+
+## [0.19.3] - Mobile inventory panel off-screen fix
+
+### Fixed
+- **Inventory panel invisible on mobile/iPad** — panel position saved as absolute pixel coordinates from desktop would place it off-screen on mobile devices with smaller viewports. Added `clampPanelPosition()` to keep the panel within visible screen bounds on restore, drag-end, and open.
+- **Inventory `isOpen` desync after placing items** — using a placeable item from inventory set `panel.Visible = false` without updating `isOpen`, causing the bag button to toggle the wrong direction on next tap.
+
+---
+
 ## [0.19.1] - Mobile bag button fix
 
 ### Fixed

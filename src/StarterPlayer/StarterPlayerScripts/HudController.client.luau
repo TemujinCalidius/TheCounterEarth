@@ -23,16 +23,40 @@ local function isMoveInput(input)
 		or input.UserInputType == Enum.UserInputType.Touch
 end
 
+-- Distance from a point to the nearest surface of a BasePart (not center).
+local function distToSurface(point: Vector3, part: BasePart): number
+	local local_ = part.CFrame:PointToObjectSpace(point)
+	local half = part.Size * 0.5
+	local clamped = Vector3.new(
+		math.clamp(local_.X, -half.X, half.X),
+		math.clamp(local_.Y, -half.Y, half.Y),
+		math.clamp(local_.Z, -half.Z, half.Z)
+	)
+	return (local_ - clamped).Magnitude
+end
+
 -- Remote for saving UI panel positions across sessions
 local saveUIPosRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("SaveUIPosition")
 
 -- Restore a saved panel position from player attribute, returns true if restored
+-- Clamps position to keep panel on-screen (handles resolution changes like 4K → laptop)
 local function restorePanelPosition(panel: Frame, panelName: string)
 	local posStr = player:GetAttribute("_UIPos_" .. panelName)
 	if type(posStr) == "string" then
 		local x, y = string.match(posStr, "^(-?%d+),(-?%d+)$")
 		if x and y then
-			panel.Position = UDim2.new(0, tonumber(x) :: number, 0, tonumber(y) :: number)
+			local px = tonumber(x) :: number
+			local py = tonumber(y) :: number
+			-- Clamp to visible screen area
+			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+				or Vector2.new(1920, 1080)
+			local panelW = panel.AbsoluteSize.X
+			local panelH = panel.AbsoluteSize.Y
+			if panelW == 0 then panelW = panel.Size.X.Offset end
+			if panelH == 0 then panelH = panel.Size.Y.Offset end
+			px = math.clamp(px, 0, math.max(viewport.X - panelW, 0))
+			py = math.clamp(py, 0, math.max(viewport.Y - panelH, 0))
+			panel.Position = UDim2.new(0, px, 0, py)
 			return true
 		end
 	end
@@ -1151,7 +1175,7 @@ local function tryAttackWithEquippedItem()
 			if lastHarvestTarget and lastHarvestTarget.Parent then
 				local hp = tonumber(lastHarvestTarget:GetAttribute("_NodeHealth")) or 0
 				local part = lastHarvestTarget.PrimaryPart or lastHarvestTarget:FindFirstChildWhichIsA("BasePart")
-				if hp > 0 and part and (root.Position - part.Position).Magnitude < 8 then
+				if hp > 0 and part and distToSurface(root.Position, part) < 8 then
 					lastHarvestHitTime = now
 					harvestHitRemote:FireServer(lastHarvestTarget)
 					return
@@ -1171,7 +1195,7 @@ local function tryAttackWithEquippedItem()
 						if hp > 0 then
 							local part = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 							if part then
-								local dist = (root.Position - part.Position).Magnitude
+								local dist = distToSurface(root.Position, part)
 								if dist < bestDist then
 									bestDist = dist
 									bestNode = child
@@ -1229,7 +1253,7 @@ local function onPlayerClick()
 			if hp > 0 then
 				local part = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 				if part then
-					local dist = (root.Position - part.Position).Magnitude
+					local dist = distToSurface(root.Position, part)
 					if dist < bestDist then
 						bestDist = dist
 						bestNode = child
@@ -1249,8 +1273,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if player:GetAttribute("IsPlacementMode") == true then return end
 
 	if isClickOrTap(input) then
-		-- On mobile, don't attack when tapping UI elements (hotbar, inventory, etc.)
-		if input.UserInputType == Enum.UserInputType.Touch and gameProcessed then
+		-- Don't attack/harvest when clicking/tapping UI elements (inventory, hotbar, etc.)
+		if gameProcessed then
 			return
 		end
 		onPlayerClick()

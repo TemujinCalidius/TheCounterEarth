@@ -737,6 +737,18 @@ end
 local HARVEST_MAX_DIST = 8
 local lastHitTime: { [Player]: number } = {}
 
+-- Distance from a point to the nearest surface of a BasePart (not center).
+local function distToSurface(point: Vector3, part: BasePart): number
+	local local_ = part.CFrame:PointToObjectSpace(point)
+	local half = part.Size * 0.5
+	local clamped = Vector3.new(
+		math.clamp(local_.X, -half.X, half.X),
+		math.clamp(local_.Y, -half.Y, half.Y),
+		math.clamp(local_.Z, -half.Z, half.Z)
+	)
+	return (local_ - clamped).Magnitude
+end
+
 harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	-- Validate target
 	if typeof(targetModel) ~= "Instance" or not targetModel:IsA("Model") then return end
@@ -748,12 +760,12 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	local nodeHP = tonumber(targetModel:GetAttribute("_NodeHealth")) or 0
 	if nodeHP <= 0 then return end
 
-	-- Range check
+	-- Range check (distance to nearest surface, not center)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	local modelPart = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart")
 	if not root or not modelPart then return end
-	if (root.Position - modelPart.Position).Magnitude > HARVEST_MAX_DIST then return end
+	if distToSurface(root.Position, modelPart) > HARVEST_MAX_DIST then return end
 
 	-- Server-side cooldown (prevent fast-fire exploits)
 	local cooldown = tonumber(targetModel:GetAttribute("_HitCooldown")) or 0.8
@@ -889,7 +901,7 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 
 	-- Notify harvesting player of successful hit (yield text + shake + sound)
 	local nodeDestroyed = newHP <= 0
-	harvestResultRemote:FireClient(player, targetModel, yield, displayName, nodeDestroyed)
+	harvestResultRemote:FireClient(player, targetModel, yield, displayName, nodeDestroyed, true)
 
 	-- Notify nearby players (shake + sound only, no yield text)
 	local nodeRoot = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart")
@@ -900,7 +912,7 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 				local otherChar = other.Character
 				local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
 				if otherRoot and (otherRoot.Position - nodePos).Magnitude <= 40 then
-					harvestResultRemote:FireClient(other, targetModel, 0, "", nodeDestroyed)
+					harvestResultRemote:FireClient(other, targetModel, 0, "", nodeDestroyed, false)
 				end
 			end
 		end
@@ -1938,6 +1950,8 @@ openLootBagRemote.OnServerEvent:Connect(function(player, bag)
 	if not bag or not (typeof(bag) == "Instance" and bag:IsA("Model")) then return end
 	if not bag:GetAttribute("_isLootBag") then return end
 	if not bag.Parent then return end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return end
 	if not isBagInRange(player, bag) then return end
 	addBagViewer(bag, player)
 	lootBagStateRemote:FireClient(player, bag, serializeBagContents(bag))
@@ -1947,6 +1961,8 @@ takeLootBagItemRemote.OnServerEvent:Connect(function(player, bag, rawItemId, raw
 	if not bag or not (typeof(bag) == "Instance" and bag:IsA("Model")) then return end
 	if not bag:GetAttribute("_isLootBag") then return end
 	if not bag.Parent then return end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return end
 	local itemId = sanitizeItemId(rawItemId)
 	if itemId == "" then return end
 	local qty = math.floor(tonumber(rawQty) or 0)

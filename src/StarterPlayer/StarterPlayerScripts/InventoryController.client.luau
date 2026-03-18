@@ -244,13 +244,26 @@ do
 	shadowGrad.Parent = shadow
 end
 
--- Restore saved position if available
+-- Clamp panel position so it stays within the visible screen area.
+local function clampPanelPosition()
+	local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+		or Vector2.new(1920, 1080)
+	local maxX = math.max(0, vp.X - PW)
+	local maxY = math.max(0, vp.Y - PH)
+	local ap = panel.AbsolutePosition
+	local cx = math.clamp(ap.X, 0, maxX)
+	local cy = math.clamp(ap.Y, 0, maxY)
+	panel.Position = UDim2.new(0, cx, 0, cy)
+end
+
+-- Restore saved position if available (clamped to current screen)
 do
 	local posStr = player:GetAttribute("_UIPos_Inventory")
 	if type(posStr) == "string" then
 		local x, y = string.match(posStr, "^(-?%d+),(-?%d+)$")
 		if x and y then
 			panel.Position = UDim2.new(0, tonumber(x) :: number, 0, tonumber(y) :: number)
+			clampPanelPosition()
 		end
 	end
 end
@@ -337,6 +350,7 @@ UserInputService.InputEnded:Connect(function(input)
 		or input.UserInputType == Enum.UserInputType.Touch then
 		if panelDragging then
 			panelDragging = false
+			clampPanelPosition()
 			saveUIPosRemote:FireServer("Inventory", panel.AbsolutePosition.X, panel.AbsolutePosition.Y)
 		end
 	end
@@ -2127,7 +2141,7 @@ detailUseBtn.Activated:Connect(function()
 
 	if def.category == "placeable" then
 		startPlacementEvent:Fire(itemId)
-		panel.Visible = false
+		setOpen(false)
 		return
 	end
 
@@ -2531,6 +2545,7 @@ setOpen = function(open: boolean)
 	isOpen        = open
 	panel.Visible = open
 	if open then
+		clampPanelPosition()
 		refreshAll()
 	else
 		cancelCraft()

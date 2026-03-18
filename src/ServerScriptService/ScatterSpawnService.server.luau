@@ -14,11 +14,14 @@
 --   respawnMin/Max — seconds before a picked-up item respawns
 --   color/size   — placeholder visuals (replace with real models later)
 
+local Players          = game:GetService("Players")
 local ServerStorage    = game:GetService("ServerStorage")
 local Workspace        = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
+local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
+local ScatterSeed    = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ScatterSeed"))
 
 -- ── Scatter type definitions ──────────────────────────────────────────────
 
@@ -52,28 +55,28 @@ type ScatterDef = {
 local SCATTER: { ScatterDef } = {
 	{
 		itemId     = "twig",
-		maxCount   = 15,
+		maxCount   = 25,
 		respawnMin = 20,
 		respawnMax = 60,
 		color      = Color3.fromRGB(101, 67, 33),
 		size       = Vector3.new(0.15, 0.15, 1.4),
 		templates  = { "twig_1" },
 		spawnNear     = "oak_tree",
-		spawnNearRadius = GameplayConfig.Tree and GameplayConfig.Tree.TwigSpawnRadius or 8,
+		spawnNearRadius = GameplayConfig.Tree and GameplayConfig.Tree.TwigSpawnRadius or 12,
 		initPhase     = 2,  -- spawn after trees
 	},
 	{
 		itemId     = "rock",
-		maxCount   = 12,
-		respawnMin = 30,
-		respawnMax = 90,
+		maxCount   = 60,
+		respawnMin = 300,
+		respawnMax = 600,
 		color      = Color3.fromRGB(140, 140, 140),
 		size       = Vector3.new(0.42, 0.3, 0.46),
 		templates  = { "rock_1", "rock_2", "rock_3" },
 	},
 	{
 		itemId     = "BrownMushroom",
-		maxCount   = 5,
+		maxCount   = 30,
 		respawnMin = 90,
 		respawnMax = 240,
 		color      = Color3.fromRGB(200, 140, 60),
@@ -81,9 +84,9 @@ local SCATTER: { ScatterDef } = {
 	},
 	{
 		itemId        = "reed",
-		maxCount      = 10,
-		respawnMin    = 60,
-		respawnMax    = 180,
+		maxCount      = 15,
+		respawnMin    = 300,
+		respawnMax    = 600,
 		color         = Color3.fromRGB(120, 160, 80),
 		size          = Vector3.new(0.3, 1.2, 0.3),
 		templates     = { "reed_1" },
@@ -297,7 +300,7 @@ local function randomNearPosition(anchorItemId: string, radius: number): (Vector
 	local anchor = anchors[math.random(1, #anchors)]
 	for _ = 1, 15 do
 		local angle = math.random() * math.pi * 2
-		local dist = 2 + math.random() * (radius - 2) -- at least 2 studs away
+		local dist = 4 + math.random() * (radius - 4) -- at least 4 studs away (outside canopy)
 		local x = anchor.X + math.cos(angle) * dist
 		local z = anchor.Z + math.sin(angle) * dist
 		local origin = Vector3.new(x, anchor.Y + 50, z)
@@ -390,6 +393,7 @@ local function createScatterModel(cfg: ScatterDef): Model?
 
 		model.Name = displayName
 		model:SetAttribute("_ScatterItem", cfg.itemId)
+		model:SetAttribute("_TemplateName", templateName)
 		if cfg.nodeHealth and cfg.nodeHealth > 0 then
 			model:SetAttribute("_NodeHealth", cfg.nodeHealth)
 			model:SetAttribute("_NodeMaxHealth", cfg.nodeHealth)
@@ -405,11 +409,15 @@ local function createScatterModel(cfg: ScatterDef): Model?
 			model:SetAttribute("_TreePhase", "standing")
 		end
 
-		-- Anchor all parts; trees are solid obstacles, other items are not
+		-- Anchor all parts. For trees, preserve per-part CanCollide from the template
+		-- (trunk=true, canopy=false) so players can walk through leaves but not trunk.
+		-- For non-tree items, force CanCollide off.
 		for _, desc in ipairs(model:GetDescendants()) do
 			if desc:IsA("BasePart") then
-				desc.Anchored   = true
-				desc.CanCollide = cfg.isTree or false
+				desc.Anchored = true
+				if not cfg.isTree then
+					desc.CanCollide = false
+				end
 			end
 		end
 
@@ -420,13 +428,15 @@ local function createScatterModel(cfg: ScatterDef): Model?
 				local emitter = Instance.new("ParticleEmitter")
 				emitter.Name = "LeafParticles"
 				emitter.Enabled = false
-				emitter.Color = ColorSequence.new(Color3.fromRGB(80, 140, 50), Color3.fromRGB(60, 110, 30))
-				emitter.Size = NumberSequence.new(0.3, 0.1)
+				emitter.Texture = AssetIds.Particles.Leaf
+				emitter.Color = ColorSequence.new(Color3.fromRGB(90, 150, 60), Color3.fromRGB(50, 100, 25))
+				emitter.Size = NumberSequence.new(0.4, 0.15)
 				emitter.Lifetime = NumberRange.new(1.5, 3)
 				emitter.Speed = NumberRange.new(1, 3)
 				emitter.SpreadAngle = Vector2.new(60, 60)
 				emitter.Rate = 0
-				emitter.RotSpeed = NumberRange.new(-90, 90)
+				emitter.RotSpeed = NumberRange.new(-120, 120)
+				emitter.Rotation = NumberRange.new(0, 360)
 				emitter.Acceleration = Vector3.new(0, -4, 0)  -- leaves drift down
 				emitter.Parent = leafPart
 			end
@@ -435,13 +445,15 @@ local function createScatterModel(cfg: ScatterDef): Model?
 				local chips = Instance.new("ParticleEmitter")
 				chips.Name = "WoodChipParticles"
 				chips.Enabled = false
-				chips.Color = ColorSequence.new(Color3.fromRGB(160, 110, 50), Color3.fromRGB(120, 80, 40))
-				chips.Size = NumberSequence.new(0.15, 0.05)
+				chips.Texture = AssetIds.Particles.WoodChip
+				chips.Color = ColorSequence.new(Color3.fromRGB(180, 130, 70), Color3.fromRGB(140, 95, 50))
+				chips.Size = NumberSequence.new(0.2, 0.08)
 				chips.Lifetime = NumberRange.new(0.5, 1.2)
 				chips.Speed = NumberRange.new(4, 10)
 				chips.SpreadAngle = Vector2.new(80, 80)
 				chips.Rate = 0
 				chips.RotSpeed = NumberRange.new(-180, 180)
+				chips.Rotation = NumberRange.new(0, 360)
 				chips.Acceleration = Vector3.new(0, -15, 0)
 				chips.Parent = leafPart
 			end
@@ -449,8 +461,15 @@ local function createScatterModel(cfg: ScatterDef): Model?
 
 		local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
 		if root then
-			local _, modelSize = model:GetBoundingBox()
-			model:PivotTo(spawnCFrame + Vector3.new(0, modelSize.Y * 0.5, 0))
+			local bbCFrame, modelSize = model:GetBoundingBox()
+			-- Lift so bounding-box bottom sits on the ground (spawnCFrame).
+			-- Works regardless of where the model pivot is (base or center).
+			local pivotY = model:GetPivot().Position.Y
+			local bbBottomY = bbCFrame.Position.Y - modelSize.Y * 0.5
+			local pivotAboveBottom = pivotY - bbBottomY
+			-- Per-template vertical offset (set _GroundOffset attribute in Studio)
+			local extraOffset = model:GetAttribute("_GroundOffset") or 0
+			model:PivotTo(spawnCFrame + Vector3.new(0, pivotAboveBottom + extraOffset, 0))
 		end
 
 		model.Parent = scatterFolder
@@ -547,7 +566,7 @@ spawnOne = function(cfg: ScatterDef)
 		if fails % 20 == 0 then
 			warn(("[ScatterSpawn] %s: %d consecutive spawn failures"):format(cfg.itemId, fails))
 		end
-		task.delay(5, function() spawnOne(cfg) end)
+		task.delay(0.5, function() spawnOne(cfg) end)
 		return
 	end
 	spawnFailures[cfg.itemId] = 0
@@ -593,7 +612,145 @@ end
 countsBindable.Parent = ServerStorage:FindFirstChild("ServerBindables")
 	or ServerStorage
 
--- Initial population — phased: phase 1 items first, then phase 2.
+-- ── Seeded spawn (instant load from baked positions) ────────────────────
+
+-- Lookup table: itemId → ScatterDef
+local scatterByItemId: { [string]: ScatterDef } = {}
+for _, cfg in ipairs(SCATTER) do
+	scatterByItemId[cfg.itemId] = cfg
+end
+
+-- Spawns a single item from a seed entry (no raycasting needed).
+local function spawnFromSeed(entry: { id: string, tpl: string, px: number, py: number, pz: number, rx: number, ry: number, rz: number }): Model?
+	local cfg = scatterByItemId[entry.id]
+	if not cfg then
+		warn(("[ScatterSeed] Unknown itemId in seed: %s"):format(entry.id))
+		return nil
+	end
+
+	local template = findTemplate(entry.tpl)
+	if not template then
+		warn(("[ScatterSeed] Template not found: %s"):format(entry.tpl))
+		return nil
+	end
+
+	local itemDef = ItemRegistry.get(cfg.itemId)
+	local displayName = itemDef and itemDef.displayName or cfg.itemId
+
+	local model: Model
+	if template:IsA("Model") then
+		model = template:Clone()
+	else
+		model = Instance.new("Model")
+		local part = template:Clone()
+		part.Parent = model
+		model.PrimaryPart = part
+	end
+
+	model.Name = displayName
+	model:SetAttribute("_ScatterItem", cfg.itemId)
+	model:SetAttribute("_TemplateName", entry.tpl)
+	if cfg.nodeHealth and cfg.nodeHealth > 0 then
+		model:SetAttribute("_NodeHealth", cfg.nodeHealth)
+		model:SetAttribute("_NodeMaxHealth", cfg.nodeHealth)
+		model:SetAttribute("_HarvestYieldMin", cfg.harvestYield and cfg.harvestYield.min or 1)
+		model:SetAttribute("_HarvestYieldMax", cfg.harvestYield and cfg.harvestYield.max or 1)
+		model:SetAttribute("_HitCooldown", cfg.hitCooldown or 0.8)
+	end
+	if cfg.requireTool then
+		model:SetAttribute("_RequireTool", cfg.requireTool)
+	end
+	if cfg.isTree then
+		model:SetAttribute("_IsTree", true)
+		model:SetAttribute("_TreePhase", "standing")
+	end
+
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			if not cfg.isTree then
+				desc.CanCollide = false
+			end
+		end
+	end
+
+	-- Add particle emitters for trees
+	if cfg.isTree then
+		local leafPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+		if leafPart and not model:FindFirstChild("LeafParticles", true) then
+			local emitter = Instance.new("ParticleEmitter")
+			emitter.Name = "LeafParticles"
+			emitter.Enabled = false
+			emitter.Texture = AssetIds.Particles.Leaf
+			emitter.Color = ColorSequence.new(Color3.fromRGB(90, 150, 60), Color3.fromRGB(50, 100, 25))
+			emitter.Size = NumberSequence.new(0.4, 0.15)
+			emitter.Lifetime = NumberRange.new(1.5, 3)
+			emitter.Speed = NumberRange.new(1, 3)
+			emitter.SpreadAngle = Vector2.new(60, 60)
+			emitter.Rate = 0
+			emitter.RotSpeed = NumberRange.new(-120, 120)
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.Acceleration = Vector3.new(0, -4, 0)
+			emitter.Parent = leafPart
+		end
+		if leafPart and not model:FindFirstChild("WoodChipParticles", true) then
+			local chips = Instance.new("ParticleEmitter")
+			chips.Name = "WoodChipParticles"
+			chips.Enabled = false
+			chips.Texture = AssetIds.Particles.WoodChip
+			chips.Color = ColorSequence.new(Color3.fromRGB(180, 130, 70), Color3.fromRGB(140, 95, 50))
+			chips.Size = NumberSequence.new(0.2, 0.08)
+			chips.Lifetime = NumberRange.new(0.5, 1.2)
+			chips.Speed = NumberRange.new(4, 10)
+			chips.SpreadAngle = Vector2.new(80, 80)
+			chips.Rate = 0
+			chips.RotSpeed = NumberRange.new(-180, 180)
+			chips.Rotation = NumberRange.new(0, 360)
+			chips.Acceleration = Vector3.new(0, -15, 0)
+			chips.Parent = leafPart
+		end
+	end
+
+	-- Position from seed CFrame (no raycasting needed)
+	local cf = CFrame.new(entry.px, entry.py, entry.pz)
+		* CFrame.Angles(entry.rx, entry.ry, entry.rz)
+	model:PivotTo(cf)
+	model.Parent = scatterFolder
+	return model
+end
+
+-- ── Initial population ──────────────────────────────────────────────────
+
+local BATCH_SIZE = 5 -- items per frame during initial population
+
+local function populatePhase(cfgs: { ScatterDef }, onComplete: (() -> ())?)
+	local queue: { ScatterDef } = {}
+	for _, cfg in ipairs(cfgs) do
+		local remaining = cfg.maxCount - (counts[cfg.itemId] or 0)
+		for _ = 1, remaining do
+			table.insert(queue, cfg)
+		end
+	end
+	if #queue == 0 then
+		if onComplete then onComplete() end
+		return
+	end
+
+	task.spawn(function()
+		local i = 1
+		while i <= #queue do
+			for _ = 1, BATCH_SIZE do
+				if i > #queue then break end
+				spawnOne(queue[i])
+				i += 1
+			end
+			task.wait()
+		end
+		if onComplete then onComplete() end
+	end)
+end
+
+-- Phase separation
 local phase1: { ScatterDef } = {}
 local phase2: { ScatterDef } = {}
 for _, cfg in ipairs(SCATTER) do
@@ -604,33 +761,93 @@ for _, cfg in ipairs(SCATTER) do
 	end
 end
 
-local function populatePhase(cfgs: { ScatterDef }, onComplete: (() -> ())?)
-	local totalItems = 0
-	for _, cfg in ipairs(cfgs) do
-		totalItems += cfg.maxCount
-	end
+-- Try seeded spawn first (instant), then fill remaining with random
+if #ScatterSeed > 0 then
+	print(("[ScatterSpawn] Loading %d items from seed..."):format(#ScatterSeed))
+	local seeded = 0
+	for _, entry in ipairs(ScatterSeed) do
+		local cfg = scatterByItemId[entry.id]
+		if cfg and (counts[entry.id] or 0) < cfg.maxCount then
+			local model = spawnFromSeed(entry)
+			if model then
+				counts[entry.id] = (counts[entry.id] or 0) + 1
+				seeded += 1
 
-	local spawned = 0
-	local idx = 0
-	for _, cfg in ipairs(cfgs) do
-		for _ = 1, cfg.maxCount do
-			idx += 1
-			task.delay((idx - 1) * 0.05, function()
-				spawnOne(cfg)
-				spawned += 1
-				if spawned >= totalItems and onComplete then
-					onComplete()
+				-- Hook up respawn for non-tree items
+				if not cfg.isTree then
+					model.AncestryChanged:Connect(function()
+						if not model.Parent then
+							counts[cfg.itemId] = math.max(0, counts[cfg.itemId] - 1)
+							local delay = cfg.respawnMin + math.random() * (cfg.respawnMax - cfg.respawnMin)
+							task.delay(delay, function()
+								spawnOne(cfg)
+							end)
+						end
+					end)
 				end
-			end)
+			end
 		end
 	end
-	if totalItems == 0 and onComplete then onComplete() end
+	print(("[ScatterSpawn] Seeded %d items. Filling remaining with random spawns..."):format(seeded))
 end
 
--- Spawn phase 1, then phase 2 after phase 1 completes
+-- Fill any remaining counts (new items added since last snapshot, or seed was empty)
 populatePhase(phase1, function()
-	-- Small delay to let phase 1 models settle in workspace
 	task.delay(1, function()
 		populatePhase(phase2)
+	end)
+end)
+
+-- ── Snapshot chat command ────────────────────────────────────────────────
+-- Type !scatter-snapshot in chat to capture all current scatter positions.
+-- Output is a ready-to-paste Luau module for ScatterSeed.luau.
+
+local GAME_OWNER_ID = game.CreatorId
+
+local function captureSnapshot()
+	local entries: { string } = {}
+	for _, child in ipairs(scatterFolder:GetChildren()) do
+		if not child:IsA("Model") then continue end
+		local itemId = child:GetAttribute("_ScatterItem")
+		if not itemId then continue end
+
+		-- Skip non-natural items (cut points, log segments, stumps, fallen trunks)
+		if child:GetAttribute("_CutPoint") then continue end
+		if child:GetAttribute("_TrunkSegment") then continue end
+		if child:GetAttribute("_TreeStump") then continue end
+		local phase = child:GetAttribute("_TreePhase")
+		if phase == "trunk" or phase == "falling" then continue end
+
+		local tplName = child:GetAttribute("_TemplateName") or itemId
+		local pivot = child:GetPivot()
+		local px, py, pz = pivot.Position.X, pivot.Position.Y, pivot.Position.Z
+		local rx, ry, rz = pivot:ToEulerAnglesYXZ()
+
+		table.insert(entries, ("{id=%q,tpl=%q,px=%.2f,py=%.2f,pz=%.2f,rx=%.4f,ry=%.4f,rz=%.4f}"):format(
+			itemId, tplName, px, py, pz, rx, ry, rz
+		))
+	end
+
+	-- Print as a complete Luau module
+	print("── SCATTER SEED START ──")
+	print("-- Copy everything between START and END into ScatterSeed.luau")
+	print("return {")
+	for _, line in ipairs(entries) do
+		print(line .. ",")
+	end
+	print("}")
+	print(("── SCATTER SEED END ── (%d entries)"):format(#entries))
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.Chatted:Connect(function(message)
+		if message:lower() ~= "!scatter-snapshot" then return end
+		-- Allow game owner or Studio testing (CreatorId 0 in local test)
+		if player.UserId ~= GAME_OWNER_ID and GAME_OWNER_ID ~= 0 then
+			warn("[ScatterSnapshot] Denied — not game owner")
+			return
+		end
+		print(("[ScatterSnapshot] Capturing snapshot for %s..."):format(player.Name))
+		captureSnapshot()
 	end)
 end)
