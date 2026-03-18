@@ -199,6 +199,7 @@ local ITEM_RENAMES: { [string]: string } = {
 	twig_axe      = "stone_axe",
 	twig_knife    = "stone_knife",
 	satchel_cloth = "satchel_reed",
+	wood          = "oak_log",
 	raw_fish      = "spoiled_food",
 	cooked_fish   = "spoiled_food",
 	raw_meat      = "spoiled_food",

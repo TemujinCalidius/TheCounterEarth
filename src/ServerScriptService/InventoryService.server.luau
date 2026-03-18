@@ -157,8 +157,9 @@ end
 publishPlaceableGhosts()
 
 -- ── Consume-effect BindableEvent (created by PlayerStateService) ──────────
+local serverBindables = ServerStorage:WaitForChild("ServerBindables")
 local consumeEffectEvent: BindableEvent =
-	ServerStorage:WaitForChild("ServerBindables"):WaitForChild("ConsumeEffect") :: BindableEvent
+	serverBindables:WaitForChild("ConsumeEffect") :: BindableEvent
 
 -- ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -760,10 +761,19 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	if lastHitTime[player] and (now - lastHitTime[player]) < cooldown * 0.9 then return end
 	lastHitTime[player] = now
 
+	-- Reject hits on trees that are falling
+	if targetModel:GetAttribute("_TreePhase") == "falling" then return end
+
 	-- Tool check
 	local requireTool = targetModel:GetAttribute("_RequireTool")
 	if requireTool and not hasHarvestTag(player, requireTool) then
-		harvestNotifyRemote:FireClient(player, "You need a knife to harvest this")
+		local TOOL_MESSAGES = {
+			reed  = "You need a knife to harvest this",
+			tree  = "You need an axe to chop this tree",
+			stone = "You need a pickaxe to mine this",
+			ore   = "You need a pickaxe to mine this",
+		}
+		harvestNotifyRemote:FireClient(player, TOOL_MESSAGES[requireTool] or "You need the right tool for this")
 		return
 	end
 
@@ -771,37 +781,47 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return end
 
-	-- Calculate yield
-	local yieldMin = tonumber(targetModel:GetAttribute("_HarvestYieldMin")) or 1
-	local yieldMax = tonumber(targetModel:GetAttribute("_HarvestYieldMax")) or 1
-	local yield = math.random(yieldMin, yieldMax)
+	-- Trees: no item yield while standing (felling only)
+	local isTree = targetModel:GetAttribute("_IsTree")
+	local yield = 0
 
-	-- Give items (block hit if inventory full — node keeps its HP)
-	local added = addQty(player, itemId, yield)
-	if not added then
-		harvestNotifyRemote:FireClient(player, "Inventory full!")
-		EventBridge.fire("inventory_full_reject", player, { itemId = itemId, qty = yield, context = "harvest" })
-		return
-	end
+	if not isTree then
+		-- Calculate yield for non-tree nodes
+		local yieldItemId = targetModel:GetAttribute("_YieldItemId") or itemId
+		local yieldMin = tonumber(targetModel:GetAttribute("_HarvestYieldMin")) or 1
+		local yieldMax = tonumber(targetModel:GetAttribute("_HarvestYieldMax")) or 1
+		yield = math.random(yieldMin, yieldMax)
 
-	-- Derive profession from item tags for the web/Discord bridge
-	local harvestDef = ItemRegistry.get(itemId)
-	local profession = "foraging" -- default
-	if harvestDef then
-		for _, tag in ipairs(harvestDef.tags) do
-			if tag == "wood"  then profession = "woodcutting"; break end
-			if tag == "stone" then profession = "mining"; break end
-			if tag == "ore"   then profession = "mining"; break end
-			if tag == "reed"  then profession = "foraging"; break end
+		-- Only give items if yield > 0 (cut points yield 0 — they just deduct HP)
+		if yield > 0 then
+			-- Give items (block hit if inventory full — node keeps its HP)
+			local added = addQty(player, yieldItemId, yield)
+			if not added then
+				harvestNotifyRemote:FireClient(player, "Inventory full!")
+				EventBridge.fire("inventory_full_reject", player, { itemId = yieldItemId, qty = yield, context = "harvest" })
+				return
+			end
+
+			-- Derive profession from item tags for the web/Discord bridge
+			local harvestDef = ItemRegistry.get(yieldItemId)
+			local profession = "foraging" -- default
+			if harvestDef then
+				for _, tag in ipairs(harvestDef.tags) do
+					if tag == "wood"  then profession = "woodcutting"; break end
+					if tag == "stone" then profession = "mining"; break end
+					if tag == "ore"   then profession = "mining"; break end
+					if tag == "reed"  then profession = "foraging"; break end
+				end
+			end
+			EventBridge.fire("harvest_complete", player, {
+				itemId = yieldItemId,
+				itemName = harvestDef and harvestDef.displayName or yieldItemId,
+				yield = yield,
+				profession = profession,
+				xpGained = yield * 5,
+			})
 		end
 	end
-	EventBridge.fire("harvest_complete", player, {
-		itemId = itemId,
-		itemName = harvestDef and harvestDef.displayName or itemId,
-		yield = yield,
-		profession = profession,
-		xpGained = yield * 5,
-	})
 
 	-- Deduct node HP
 	local newHP = nodeHP - 1
@@ -886,13 +906,30 @@ harvestHitRemote.OnServerEvent:Connect(function(player, targetModel)
 		end
 	end
 
-	-- Destroy node if HP depleted (AncestryChanged in ScatterSpawnService triggers respawn)
-	-- Delay slightly so client can play final hit feedback (shake, sound, floating text)
+	-- Handle node destruction
 	if nodeDestroyed then
 		-- Disable further interaction immediately
 		for _, desc in ipairs(targetModel:GetDescendants()) do
 			if desc:IsA("ProximityPrompt") then desc.Enabled = false end
 		end
+
+		-- Trees: fire TreeFelled bindable instead of destroying
+		if isTree then
+			local treeFelled = serverBindables:FindFirstChild("TreeFelled")
+			if treeFelled then
+				task.delay(0.5, function()
+					treeFelled:Fire(targetModel, player)
+				end)
+			else
+				warn("[Harvest] TreeFelled bindable not found — destroying tree directly")
+				task.delay(1.4, function()
+					if targetModel and targetModel.Parent then targetModel:Destroy() end
+				end)
+			end
+			return
+		end
+
+		-- Normal nodes: delay slightly for final hit feedback, then destroy
 		task.delay(1.4, function()
 			if targetModel and targetModel.Parent then
 				targetModel:Destroy()

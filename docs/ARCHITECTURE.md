@@ -22,6 +22,8 @@ src/
 │   ├── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
 │   ├── TradingService.server.luau        -- Player-to-player trading
 │   ├── PlayerInspectService.server.luau  -- Player inspect: profile data on request
+│   ├── TreeService.server.luau                -- Tree lifecycle: fell, stump, trunk, cut points, regrowth
+│   ├── ToolPlaceholders.server.luau           -- Runtime placeholder Tool models (until Studio meshes exist)
 │   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher (+ onFire hook)
 │   ├── EventBridgeWorker.server.luau     -- Flush loop + init for EventBridge
 │   └── AchievementService.server.luau    -- Achievement tracking, counters, unlocks, login streaks
@@ -219,19 +221,45 @@ Spawns floor-scatter items in the world within ScatterZones.
 **Scatter Definitions:**
 - Each item type has: `maxCount`, `respawnMin`/`Max`, visual config, optional template variants
 - Harvest nodes add: `nodeHealth`, `harvestYield` (min/max), `hitCooldown`, `requireTool`
+- Tree entries add: `isTree`, `minSpacing`, particle emitters (leaf + wood chip)
 - Placement options: `nearWater` (spawn near water edges), `groundSink` (embed in ground), `alignToSlope` (tilt to terrain normal)
 
 **Spawn Process:**
 - Raycasts from sky to find ground position within ScatterZones
+- RaycastParams exclude ScatterZones folder and Scatter folder so items land on terrain
 - Rejects slopes steeper than 25° (surface normal dot product)
 - Water-edge items: must be on dry land with water within 12 studs
 - Clones Studio-placed templates from `ServerStorage/ScatterModels/` (falls back to colored placeholder parts)
 - Templates use `GetBoundingBox()` for accurate vertical positioning
+- Trees enforce `minSpacing` (12 studs) — rejects positions too close to existing trees
 
 **Respawn:**
 - When a model is destroyed (picked up or harvested), `AncestryChanged` triggers a delayed respawn (random delay within `respawnMin`–`respawnMax`)
+- Trees skip AncestryChanged respawn — TreeService manages full lifecycle including stump-based regrowth
 
-### 6. Gather Controller (GatherController)
+### 6. Tree Harvesting (TreeService)
+
+Multi-phase tree lifecycle inspired by Medieval Dynasty — fell the tree, section the trunk, pick up logs.
+
+**Lifecycle (6 phases):**
+1. **Standing** — 8 HP, no yield; player chops with axe, tree shakes + leaf/wood chip particles
+2. **Falling** — server Heartbeat tween rotates tree 90° away from player over 2s; deals 20 dmg on contact
+3. **Stump + Trunk** — original tree destroyed; stump placed at base; brown trunk Part lying on ground with 2 cut point markers
+4. **Trunk Sectioning** — cut point 1: trunk shrinks from that end, 1 log spawns; cut point 2: trunk destroyed, 2 logs spawn
+5. **Log Pickup** — 3 oak_log segments with ProximityPrompt (E key); auto-despawn after 10 min
+6. **Regrowth** — stump timer (1–1.5 hours) → clone random tree template → destroy stump
+
+**Key attributes:** `_IsTree`, `_TreePhase` (standing/falling/trunk), `_CutPoint`, `_CutPointIndex`, `_TrunkSegment`, `_TreeStump`
+
+**Cut points:** Standalone Models in Scatter folder (not children of trunk) so client harvest scan finds them. Linked to trunk via `TrunkRef` ObjectValue. Invisible hit target Part + BillboardGui with "Chop Here" marker.
+
+**Integration:** InventoryService checks `_IsTree` on harvest — fires `TreeFelled` BindableEvent instead of normal destroy path. TreeService listens and runs the fell sequence.
+
+**Config:** `GameplayConfig.Tree` — node health, hit cooldown, cut point hits, fall duration/damage, log despawn, respawn timers, spacing.
+
+**Placeholder tools:** `ToolPlaceholders.server.luau` auto-generates stone_axe, stone_pickaxe, stone_knife Tool instances with welded geometric parts. Skipped if Studio model already exists in `ServerStorage/ItemTools`.
+
+### 7. Gather Controller (GatherController)
 
 Client-side hit feedback for the harvest system.
 
@@ -243,7 +271,7 @@ Client-side hit feedback for the harvest system.
 
 **On HarvestNotify:** Shows error text near player head (e.g. "You need a knife", "Inventory full!")
 
-### 7. Player Inspect (PlayerInspectService + InspectController)
+### 8. Player Inspect (PlayerInspectService + InspectController)
 
 Inspect other players' profiles via ProximityPrompt.
 
@@ -262,7 +290,7 @@ Inspect other players' profiles via ProximityPrompt.
 - TRADE button: fires `TradeInitiate` with empty offer to start trade from inspect screen
 - Panel is draggable and position persists across sessions
 
-### 8. Loot Bag Controller (LootBagController)
+### 9. Loot Bag Controller (LootBagController)
 
 Client-side rendering for loot bag timers and death bag beacons.
 
@@ -272,7 +300,7 @@ Client-side rendering for loot bag timers and death bag beacons.
 
 **Replication handling:** `waitForHandle()` with 3s timeout for bag PrimaryPart replication. `task.defer` in ChildAdded for attribute replication timing.
 
-### 9. HUD (HudController)
+### 10. HUD (HudController)
 
 Client-side UI rendering.
 
@@ -297,7 +325,7 @@ Client-side UI rendering.
 **Visual Effects:**
 - Vignette overlay: opacity increases as energy drops (darkens screen edges)
 
-### 10. Inventory Controller (InventoryController)
+### 11. Inventory Controller (InventoryController)
 
 Client-side inventory panel with drag-and-drop.
 

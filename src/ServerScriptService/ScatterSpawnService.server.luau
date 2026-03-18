@@ -22,6 +22,8 @@ local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChi
 
 -- ── Scatter type definitions ──────────────────────────────────────────────
 
+local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
+
 type ScatterDef = {
 	itemId:     string,
 	maxCount:   number,
@@ -37,6 +39,14 @@ type ScatterDef = {
 	requireTool:   string?,  -- harvestTag required on equipped tool (e.g. "reed")
 	groundSink:    number?,  -- studs to sink into ground (hides floating on slopes)
 	alignToSlope:  boolean?, -- tilt model to match terrain surface normal
+	-- Tree system
+	isTree:          boolean?,  -- multi-phase tree (fell → trunk → logs → stump → regrow)
+	minSpacing:      number?,   -- min studs between this item and other scatter items
+	-- Proximity spawning
+	spawnNear:       string?,   -- itemId to spawn near (e.g. "oak_tree")
+	spawnNearRadius: number?,   -- max distance from the anchor item
+	-- Init ordering
+	initPhase:       number?,   -- 1 = spawn first (default), 2 = spawn after phase 1 completes
 }
 
 local SCATTER: { ScatterDef } = {
@@ -48,6 +58,9 @@ local SCATTER: { ScatterDef } = {
 		color      = Color3.fromRGB(101, 67, 33),
 		size       = Vector3.new(0.15, 0.15, 1.4),
 		templates  = { "twig_1" },
+		spawnNear     = "oak_tree",
+		spawnNearRadius = GameplayConfig.Tree and GameplayConfig.Tree.TwigSpawnRadius or 8,
+		initPhase     = 2,  -- spawn after trees
 	},
 	{
 		itemId     = "rock",
@@ -81,6 +94,24 @@ local SCATTER: { ScatterDef } = {
 		requireTool   = "reed",
 		groundSink    = 0.3,
 		alignToSlope  = true,
+	},
+	{
+		itemId        = "oak_tree",
+		maxCount      = GameplayConfig.Tree and GameplayConfig.Tree.MaxTier0Trees or 8,
+		respawnMin    = GameplayConfig.Tree and GameplayConfig.Tree.RespawnMinSeconds or 3600,
+		respawnMax    = GameplayConfig.Tree and GameplayConfig.Tree.RespawnMaxSeconds or 5400,
+		color         = Color3.fromRGB(60, 100, 40),
+		size          = Vector3.new(2, 14, 2),
+		templates     = { "oak_tree_1", "oak_tree_2", "oak_tree_3" },
+		nodeHealth    = GameplayConfig.Tree and GameplayConfig.Tree.Tier0NodeHealth or 8,
+		harvestYield  = { min = 0, max = 0 },  -- no yield while standing (felling only)
+		hitCooldown   = GameplayConfig.Tree and GameplayConfig.Tree.Tier0HitCooldown or 1.8,
+		requireTool   = "tree",
+		groundSink    = 0.5,
+		alignToSlope  = false,
+		isTree        = true,
+		minSpacing    = GameplayConfig.Tree and GameplayConfig.Tree.MinTreeSpacing or 12,
+		initPhase     = 1,
 	},
 }
 
@@ -163,6 +194,9 @@ end
 
 -- ── Ground position helpers ─────────────────────────────────────────────
 
+-- RaycastParams placeholder — built after scatterFolder is created (see below).
+local scatterRayParams: RaycastParams = nil :: any
+
 -- Raycast to find ground at a random X,Z within the zone.
 -- Returns (position, surfaceNormal) or nil.
 local function raycastGround(): (Vector3?, Vector3?)
@@ -170,7 +204,7 @@ local function raycastGround(): (Vector3?, Vector3?)
 	local x = center.X + (math.random() * 2 - 1) * half.X
 	local z = center.Z + (math.random() * 2 - 1) * half.Z
 	local origin = Vector3.new(x, center.Y + 500, z)
-	local result = Workspace:Raycast(origin, Vector3.new(0, -1200, 0))
+	local result = Workspace:Raycast(origin, Vector3.new(0, -1200, 0), scatterRayParams)
 	if not result then return nil, nil end
 	return Vector3.new(x, result.Position.Y, z), result.Normal
 end
@@ -218,6 +252,17 @@ if not scatterFolder then
 	scatterFolder.Parent = Workspace
 end
 
+-- Build RaycastParams that ignores ScatterZones and existing scatter items
+-- so the downward ray hits only Terrain and world geometry.
+do
+	scatterRayParams = RaycastParams.new()
+	scatterRayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local filterList = { scatterFolder }
+	local zonesFolder = Workspace:FindFirstChild("ScatterZones")
+	if zonesFolder then table.insert(filterList, zonesFolder) end
+	scatterRayParams.FilterDescendantsInstances = filterList
+end
+
 -- ── Template lookup ──────────────────────────────────────────────────────
 
 -- Looks for a Studio-placed Model or MeshPart in ServerStorage > ScatterModels.
@@ -233,18 +278,72 @@ end
 
 -- ── Model creation ────────────────────────────────────────────────────────
 
+-- Picks a random ground position near an existing scatter model with the given itemId.
+-- Falls back to randomGroundPosition() if no anchor found.
+local function randomNearPosition(anchorItemId: string, radius: number): (Vector3?, Vector3?)
+	local anchors: { Vector3 } = {}
+	for _, m in ipairs(scatterFolder:GetChildren()) do
+		if m:IsA("Model") then
+			local sid = m:GetAttribute("_ScatterItem")
+			local isStump = m:GetAttribute("_TreeStump")
+			if sid == anchorItemId or isStump then
+				local p = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
+				if p then table.insert(anchors, p.Position) end
+			end
+		end
+	end
+	if #anchors == 0 then return randomGroundPosition() end
+
+	local anchor = anchors[math.random(1, #anchors)]
+	for _ = 1, 15 do
+		local angle = math.random() * math.pi * 2
+		local dist = 2 + math.random() * (radius - 2) -- at least 2 studs away
+		local x = anchor.X + math.cos(angle) * dist
+		local z = anchor.Z + math.sin(angle) * dist
+		local origin = Vector3.new(x, anchor.Y + 50, z)
+		local result = Workspace:Raycast(origin, Vector3.new(0, -200, 0), scatterRayParams)
+		if result then
+			local pos = Vector3.new(x, result.Position.Y, z)
+			if isFlatEnough(result.Normal) and not isNearWaterAt(pos) then
+				return pos, result.Normal
+			end
+		end
+	end
+	return randomGroundPosition() -- fallback
+end
+
+-- Checks if a position is too close to any existing scatter model.
+local function isTooCloseToExisting(pos: Vector3, minDist: number): boolean
+	for _, m in ipairs(scatterFolder:GetChildren()) do
+		if m:IsA("Model") then
+			local p = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
+			if p and (p.Position - pos).Magnitude < minDist then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 local function createScatterModel(cfg: ScatterDef): Model?
 	local itemDef = ItemRegistry.get(cfg.itemId)
 	local displayName = itemDef and itemDef.displayName or cfg.itemId
 
 	local pos: Vector3?
 	local surfaceNormal: Vector3?
-	if cfg.nearWater then
+	if cfg.spawnNear then
+		pos, surfaceNormal = randomNearPosition(cfg.spawnNear, cfg.spawnNearRadius or 8)
+	elseif cfg.nearWater then
 		pos, surfaceNormal = randomWaterEdgePosition()
 	else
 		pos, surfaceNormal = randomGroundPosition()
 	end
 	if not pos then return nil end
+
+	-- Minimum spacing check
+	if cfg.minSpacing and cfg.minSpacing > 0 then
+		if isTooCloseToExisting(pos, cfg.minSpacing) then return nil end
+	end
 
 	-- Sink into ground to hide floating on slopes
 	local sink = cfg.groundSink or 0
@@ -301,12 +400,50 @@ local function createScatterModel(cfg: ScatterDef): Model?
 		if cfg.requireTool then
 			model:SetAttribute("_RequireTool", cfg.requireTool)
 		end
+		if cfg.isTree then
+			model:SetAttribute("_IsTree", true)
+			model:SetAttribute("_TreePhase", "standing")
+		end
 
-		-- Anchor all parts and disable collision (pickup items, not obstacles)
+		-- Anchor all parts; trees are solid obstacles, other items are not
 		for _, desc in ipairs(model:GetDescendants()) do
 			if desc:IsA("BasePart") then
 				desc.Anchored   = true
-				desc.CanCollide = false
+				desc.CanCollide = cfg.isTree or false
+			end
+		end
+
+		-- Add leaf particle emitter for trees (disabled, burst on hit by client)
+		if cfg.isTree then
+			local leafPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+			if leafPart and not model:FindFirstChild("LeafParticles", true) then
+				local emitter = Instance.new("ParticleEmitter")
+				emitter.Name = "LeafParticles"
+				emitter.Enabled = false
+				emitter.Color = ColorSequence.new(Color3.fromRGB(80, 140, 50), Color3.fromRGB(60, 110, 30))
+				emitter.Size = NumberSequence.new(0.3, 0.1)
+				emitter.Lifetime = NumberRange.new(1.5, 3)
+				emitter.Speed = NumberRange.new(1, 3)
+				emitter.SpreadAngle = Vector2.new(60, 60)
+				emitter.Rate = 0
+				emitter.RotSpeed = NumberRange.new(-90, 90)
+				emitter.Acceleration = Vector3.new(0, -4, 0)  -- leaves drift down
+				emitter.Parent = leafPart
+			end
+			-- Wood chip particles (burst where axe hits the trunk)
+			if leafPart and not model:FindFirstChild("WoodChipParticles", true) then
+				local chips = Instance.new("ParticleEmitter")
+				chips.Name = "WoodChipParticles"
+				chips.Enabled = false
+				chips.Color = ColorSequence.new(Color3.fromRGB(160, 110, 50), Color3.fromRGB(120, 80, 40))
+				chips.Size = NumberSequence.new(0.15, 0.05)
+				chips.Lifetime = NumberRange.new(0.5, 1.2)
+				chips.Speed = NumberRange.new(4, 10)
+				chips.SpreadAngle = Vector2.new(80, 80)
+				chips.Rate = 0
+				chips.RotSpeed = NumberRange.new(-180, 180)
+				chips.Acceleration = Vector3.new(0, -15, 0)
+				chips.Parent = leafPart
 			end
 		end
 
@@ -330,6 +467,17 @@ local function createScatterModel(cfg: ScatterDef): Model?
 	if cfg.requireTool then
 		model:SetAttribute("_RequireTool", cfg.requireTool)
 	end
+	if cfg.nodeHealth and cfg.nodeHealth > 0 then
+		model:SetAttribute("_NodeHealth", cfg.nodeHealth)
+		model:SetAttribute("_NodeMaxHealth", cfg.nodeHealth)
+		model:SetAttribute("_HarvestYieldMin", cfg.harvestYield and cfg.harvestYield.min or 1)
+		model:SetAttribute("_HarvestYieldMax", cfg.harvestYield and cfg.harvestYield.max or 1)
+		model:SetAttribute("_HitCooldown", cfg.hitCooldown or 0.8)
+	end
+	if cfg.isTree then
+		model:SetAttribute("_IsTree", true)
+		model:SetAttribute("_TreePhase", "standing")
+	end
 
 	local part          = Instance.new("Part")
 	part.Name           = "Body"
@@ -337,10 +485,40 @@ local function createScatterModel(cfg: ScatterDef): Model?
 	part.Color          = cfg.color
 	part.Material       = Enum.Material.SmoothPlastic
 	part.Anchored       = true
+	part.CanCollide     = cfg.isTree or false
 	part.CastShadow     = true
 	part.CFrame         = spawnCFrame + Vector3.new(0, cfg.size.Y * 0.5, 0)
 	part.Parent         = model
 	model.PrimaryPart   = part
+
+	-- Add leaf particle emitter for placeholder trees
+	if cfg.isTree then
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "LeafParticles"
+		emitter.Enabled = false
+		emitter.Color = ColorSequence.new(Color3.fromRGB(80, 140, 50), Color3.fromRGB(60, 110, 30))
+		emitter.Size = NumberSequence.new(0.3, 0.1)
+		emitter.Lifetime = NumberRange.new(1.5, 3)
+		emitter.Speed = NumberRange.new(1, 3)
+		emitter.SpreadAngle = Vector2.new(60, 60)
+		emitter.Rate = 0
+		emitter.RotSpeed = NumberRange.new(-90, 90)
+		emitter.Acceleration = Vector3.new(0, -4, 0)
+		emitter.Parent = part
+
+		local chips = Instance.new("ParticleEmitter")
+		chips.Name = "WoodChipParticles"
+		chips.Enabled = false
+		chips.Color = ColorSequence.new(Color3.fromRGB(160, 110, 50), Color3.fromRGB(120, 80, 40))
+		chips.Size = NumberSequence.new(0.15, 0.05)
+		chips.Lifetime = NumberRange.new(0.5, 1.2)
+		chips.Speed = NumberRange.new(4, 10)
+		chips.SpreadAngle = Vector2.new(80, 80)
+		chips.Rate = 0
+		chips.RotSpeed = NumberRange.new(-180, 180)
+		chips.Acceleration = Vector3.new(0, -15, 0)
+		chips.Parent = part
+	end
 
 	model.Parent = scatterFolder
 	return model
@@ -375,6 +553,9 @@ spawnOne = function(cfg: ScatterDef)
 	spawnFailures[cfg.itemId] = 0
 	counts[cfg.itemId] += 1
 
+	-- Trees are managed by TreeService (fell → stump → regrow); skip auto-respawn.
+	if cfg.isTree then return end
+
 	-- When the model is removed (picked up or destroyed), schedule a respawn.
 	model.AncestryChanged:Connect(function()
 		if not model.Parent then
@@ -387,11 +568,69 @@ spawnOne = function(cfg: ScatterDef)
 	end)
 end
 
--- Initial population — staggered slightly so they don't all raycast at once.
+-- Expose count helpers for TreeService to manage tree counts
+local ScatterCounts = {}
+function ScatterCounts.decrement(itemId: string)
+	counts[itemId] = math.max(0, (counts[itemId] or 0) - 1)
+end
+function ScatterCounts.increment(itemId: string)
+	counts[itemId] = (counts[itemId] or 0) + 1
+end
+function ScatterCounts.get(itemId: string): number
+	return counts[itemId] or 0
+end
+
+-- Store in ServerStorage so TreeService can access it
+local countsBindable = Instance.new("BindableFunction")
+countsBindable.Name = "ScatterCountHelper"
+countsBindable.OnInvoke = function(action: string, itemId: string): number?
+	if action == "decrement" then ScatterCounts.decrement(itemId); return nil
+	elseif action == "increment" then ScatterCounts.increment(itemId); return nil
+	elseif action == "get" then return ScatterCounts.get(itemId)
+	end
+	return nil
+end
+countsBindable.Parent = ServerStorage:FindFirstChild("ServerBindables")
+	or ServerStorage
+
+-- Initial population — phased: phase 1 items first, then phase 2.
+local phase1: { ScatterDef } = {}
+local phase2: { ScatterDef } = {}
 for _, cfg in ipairs(SCATTER) do
-	for i = 1, cfg.maxCount do
-		task.delay((i - 1) * 0.05, function()
-			spawnOne(cfg)
-		end)
+	if (cfg.initPhase or 1) >= 2 then
+		table.insert(phase2, cfg)
+	else
+		table.insert(phase1, cfg)
 	end
 end
+
+local function populatePhase(cfgs: { ScatterDef }, onComplete: (() -> ())?)
+	local totalItems = 0
+	for _, cfg in ipairs(cfgs) do
+		totalItems += cfg.maxCount
+	end
+
+	local spawned = 0
+	local idx = 0
+	for _, cfg in ipairs(cfgs) do
+		for _ = 1, cfg.maxCount do
+			idx += 1
+			task.delay((idx - 1) * 0.05, function()
+				spawnOne(cfg)
+				spawned += 1
+				if spawned >= totalItems and onComplete then
+					onComplete()
+				end
+			end)
+		end
+	end
+	if totalItems == 0 and onComplete then onComplete() end
+end
+
+-- Spawn phase 1, then phase 2 after phase 1 completes
+populatePhase(phase1, function()
+	-- Small delay to let phase 1 models settle in workspace
+	task.delay(1, function()
+		populatePhase(phase2)
+	end)
+end)

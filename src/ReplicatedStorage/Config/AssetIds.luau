@@ -21,7 +21,7 @@ return {
 		CampfireIcon = "rbxassetid://79851233339992",
 		StoneAxeIcon = "rbxassetid://83177613644634",
 		StonePickaxeIcon = "rbxassetid://70659355065719",
-		WoodIcon = "rbxassetid://80881492393736",
+		OakLogIcon = "rbxassetid://80881492393736",
 		StoneIcon = "rbxassetid://140587989430036",
 		IronOreIcon = "rbxassetid://121339013867057",
 		CookedMushroomIcon = "rbxassetid://116959815948177",
@@ -132,5 +132,8 @@ return {
 		HarvestReed  = "rbxassetid://112146767048601",
 		Crafting     = "rbxassetid://97194221591864",
 		ToolBreak    = "rbxassetid://93653850093139",
+		ChopWood     = "",  -- placeholder: axe impact on wood
+		LeafRustle   = "",  -- placeholder: leaves rustling
+		TreeFall     = "",  -- placeholder: creaking + crash
 	},
 }

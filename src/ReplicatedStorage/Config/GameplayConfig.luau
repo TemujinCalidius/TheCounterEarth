@@ -112,6 +112,23 @@ return {
 		},
 	},
 
+	Tree = {
+		Tier0NodeHealth       = 8,        -- hits to fell the standing tree
+		Tier0HitCooldown      = 1.8,      -- seconds between chops
+		Tier0CutPointHits     = 2,        -- hits per cut point on fallen trunk
+		Tier0CutPoints        = 2,        -- number of cut points on trunk
+		Tier0LogsPerTree      = 3,        -- total log segments (1 per first cut, 2 on final cut)
+		FallDurationSeconds   = 2.0,
+		FallDamage            = 20,
+		FallDamageRadius      = 3,        -- studs from trunk center
+		LogSegmentDespawnSecs = 600,      -- 10 min despawn for uncollected logs
+		RespawnMinSeconds     = 3600,     -- 1 hour
+		RespawnMaxSeconds     = 5400,     -- 1.5 hours
+		MinTreeSpacing        = 12,       -- studs between trees
+		TwigSpawnRadius       = 8,        -- studs: how close twigs spawn to trees
+		MaxTier0Trees         = 8,        -- per server
+	},
+
 	EventBridge = {
 		Enabled = true,
 		EnableInStudio = false,

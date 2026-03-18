@@ -196,15 +196,15 @@ Items.bedroll = {
 -- TIER 1 MATERIALS — gathered with primitive tools
 -- ---------------------------------------------------------------------------
 
-Items.wood = {
-	id = "wood",
-	displayName = "Wood",
-	description = "Rough timber split from a felled tree.",
+Items.oak_log = {
+	id = "oak_log",
+	displayName = "Oak Log",
+	description = "A rough log from a felled oak tree.",
 	stackMax = 10,
 	weight = 1.5,
 	slotSize = { w = 1, h = 2 },
 	category = "material",
-	tags = { "material", "wood", "tier1" },
+	tags = { "material", "wood", "tier0", "log" },
 	icon = "rbxassetid://80881492393736",
 }
 

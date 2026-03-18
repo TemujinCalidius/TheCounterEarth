@@ -14,10 +14,8 @@ tools/
 # Environment variables (API keys)
 .env
 
-# Raw assets (textures, audio — kept local, not in repo)
-assets/raw/textures/
-assets/raw/audio/
-assets/raw/scripts/
+# Raw assets (textures, audio, meshes, generated — kept local, not in repo)
+assets/
 
 # macOS
 .DS_Store

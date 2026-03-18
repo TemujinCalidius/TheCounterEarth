@@ -106,12 +106,16 @@ local function shakeModel(model: Model)
 	local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
 	if not root or not model.Parent then return end
 
+	-- Trees are heavier — scale shake down for more realistic mass feel
+	local isTree = model:GetAttribute("_IsTree") == true
+	local shakeScale = if isTree then 0.6 else 1.0
+
 	local originalCFrame = root.CFrame
 	task.spawn(function()
 		for i = 1, 6 do
 			if not model.Parent then return end
 			-- Shake intensity decreases over time (strong hit → settle)
-			local intensity = 1 - (i - 1) / 6
+			local intensity = (1 - (i - 1) / 6) * shakeScale
 			local offset = Vector3.new(
 				(math.random() - 0.5) * 0.4 * intensity,
 				(math.random() - 0.5) * 0.15 * intensity,
@@ -124,6 +128,22 @@ local function shakeModel(model: Model)
 			model:PivotTo(originalCFrame)
 		end
 	end)
+end
+
+-- ── Particle bursts (trees / cut points) ────────────────────────────
+
+local function emitLeafParticles(model: Model)
+	local emitter = model:FindFirstChild("LeafParticles", true)
+	if emitter and emitter:IsA("ParticleEmitter") then
+		emitter:Emit(8)
+	end
+end
+
+local function emitWoodChips(model: Model)
+	local emitter = model:FindFirstChild("WoodChipParticles", true)
+	if emitter and emitter:IsA("ParticleEmitter") then
+		emitter:Emit(12)
+	end
 end
 
 -- ── Floating yield text on the node ──────────────────────────────────
@@ -171,7 +191,8 @@ end
 -- Maps scatter item IDs to their harvest sound asset key in AssetIds.Sounds.
 
 local ITEM_HARVEST_SOUND: { [string]: string } = {
-	reed = "HarvestReed",
+	reed     = "HarvestReed",
+	oak_tree = "ChopWood",
 }
 
 local function playHarvestSound(model: Model)
@@ -248,10 +269,12 @@ end
 harvestResult.OnClientEvent:Connect(function(targetModel: Model, qty: number, displayName: string, _nodeDestroyed: boolean)
 	local isObserver = qty <= 0
 
-	-- Shake and sound are visible/audible to everyone nearby
+	-- Shake, sound, and particles are visible/audible to everyone nearby
 	if targetModel and targetModel.Parent then
 		shakeModel(targetModel)
 		playHarvestSound(targetModel)
+		emitLeafParticles(targetModel)
+		emitWoodChips(targetModel)
 	end
 
 	-- Yield text and animation only for the harvesting player

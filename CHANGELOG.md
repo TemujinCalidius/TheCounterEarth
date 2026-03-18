@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.19.0] - Tier 0 oak tree harvesting system
+
+### Added
+- **TreeService** — new server script managing full tree lifecycle: standing → fell → stump + trunk → cut points → log segments → regrowth
+- **Tree felling** — chop a standing oak 8 times with a stone_axe to fell it; tree rotates 90° away from player with gravity-eased tween
+- **Fall damage** — players caught under a falling tree take 20 HP damage
+- **Trunk sectioning** — fallen trunk gets 2 "Chop Here" cut point markers (BillboardGui); chopping the first shrinks the trunk from that end and drops 1 log; chopping the second destroys the trunk and drops 2 more logs
+- **Log segment pickup** — 3 oak_log segments per tree, each with ProximityPrompt (E key), auto-despawn after 10 minutes
+- **Stump regrowth** — stump spawns at original position; new tree regrows after 1–1.5 hours
+- **oak_tree ScatterDef** — trees spawn in ScatterZones with 12-stud minimum spacing, placeholder parts until meshes are ready
+- **oak_log item** — renamed from `wood`, with updated tags (`log`, `tier0`), DataStore migration via ITEM_RENAMES
+- **Placeholder tool models** — ToolPlaceholders.server.luau auto-generates stone_axe, stone_pickaxe, stone_knife Tool instances with welded handle + head parts (skipped if Studio model exists)
+- **Tree config** — `GameplayConfig.Tree` section with all tree parameters (node health, cooldowns, cut points, fall duration, respawn timers, spacing)
+- **Leaf particles** — ParticleEmitter burst on tree hit (green leaves, 8 particles per chop)
+- **Wood chip particles** — ParticleEmitter burst on tree and cut point hits (brown chips, 12 particles per chop)
+- **Reference images** — 7 oak tree asset references generated for 3D modelling (3 tree variants, stump, full trunk, medium trunk, log segment)
+
+### Changed
+- **Scatter raycast filtering** — ScatterZones and Scatter folder now excluded from ground raycasts so items land on terrain, not on zone parts
+- **Harvest error messages** — dynamic tool requirement messages based on `_RequireTool` attribute (axe for trees, knife for reeds, pickaxe for stone/ore)
+- **Tree shake scaling** — trees shake at 0.6x intensity for more realistic mass feel
+- **Harvest sound mapping** — added `oak_tree = "ChopWood"` to GatherController
+
+### Fixed
+- **Scatter floating items** — items were landing on top of ScatterZone BaseParts instead of terrain; fixed with RaycastParams.Exclude filter
+- **Zero-yield "inventory full"** — cut points with 0 yield were incorrectly triggering "Inventory full!" message; added `if yield > 0` guard
+- **Tree falling toward player** — CFrame.fromAxisAngle sign was inverted; tree now falls away from player
+- **Stump tipping** — cylinder stump lost Z rotation on PivotTo; replaced with upright block geometry
+- **Cut point discovery** — cut points parented inside trunk model were invisible to client harvest scan; moved to Scatter folder with ObjectValue trunk reference
+
+---
+
 ## [0.18.0] - UI overhaul: tooltips, achievement UX, themed panels
 
 ### Added
