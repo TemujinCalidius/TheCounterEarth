@@ -124,6 +124,7 @@ Items.stone_axe = {
 		harvestTags = { "wood", "tree" },
 	},
 	tags = { "tool", "axe", "tier0", "primitive" },
+	gripCFrame = CFrame.new(0.093, -0.454, 0.078) * CFrame.Angles(math.rad(-9.6), math.rad(-171.5), math.rad(-82.6)),
 	icon = "rbxassetid://83177613644634",
 }
 
