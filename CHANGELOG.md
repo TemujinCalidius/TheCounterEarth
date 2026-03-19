@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.19.6] - Stone axe mesh and grip tuning
+
+### Added
+- **Stone axe mesh** — replaced placeholder geometric parts with a custom 3D model (Studio-placed Tool in ServerStorage/ItemTools)
+- **gripCFrame support** — stone_axe now has a tuned `gripCFrame` in ItemRegistry so it sits correctly in the custom mesh avatar's hand
+- **GripEditor plugin** — open-source Roblox Studio plugin for visually editing Tool.Grip with Move/Rotate handles; works with custom mesh avatars, R15, and R6 rigs ([Roblox-GripEditor](https://github.com/TemujinCalidius/Roblox-GripEditor))
+
+---
+
 ## [0.19.5] - Tree trunk landing, health bars, and harvest polish
 
 ### Added
