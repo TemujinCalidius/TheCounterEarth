@@ -20,9 +20,9 @@ return {
 		BedrollIcon = "rbxassetid://71441394289581",
 		CampfireIcon = "rbxassetid://79851233339992",
 		StoneAxeIcon = "rbxassetid://83177613644634",
-		StonePickaxeIcon = "rbxassetid://70659355065719",
+		StonePickaxeIcon = "rbxassetid://89146262634377",
 		OakLogIcon = "rbxassetid://80881492393736",
-		StoneIcon = "rbxassetid://140587989430036",
+		StoneIcon = "rbxassetid://90151560373302",
 		IronOreIcon = "rbxassetid://121339013867057",
 		CookedMushroomIcon = "rbxassetid://116959815948177",
 		SpoiledFoodIcon = "rbxassetid://70694772297700",
@@ -132,6 +132,7 @@ return {
 	Particles = {
 		Leaf     = "rbxassetid://127514762909540",
 		WoodChip = "rbxassetid://112909682582631",
+		StoneChip = "",  -- placeholder: stone chip particle sprite (upload and fill in)
 	},
 	Sounds = {
 		Breathing = "rbxassetid://109256307915148",
@@ -141,6 +142,7 @@ return {
 		Crafting     = "rbxassetid://97194221591864",
 		ToolBreak    = "rbxassetid://93653850093139",
 		ChopWood     = "rbxassetid://99100344032755",
+		MineRock     = "",  -- placeholder: pickaxe on rock impact
 		LeafRustle   = "",  -- placeholder: leaves rustling
 		TreeFall     = "",  -- placeholder: creaking + crash
 	},

@@ -210,11 +210,15 @@ local function startPlacement(itemId: string)
 			return
 		end
 
-		-- Build exclusion filter
+		-- Build exclusion filter (exclude scatter zones and items so raycast hits terrain)
 		local filterList: { Instance } = { ghostModel }
 		if player.Character then
 			table.insert(filterList, player.Character)
 		end
+		local scatterFolder = workspace:FindFirstChild("Scatter")
+		if scatterFolder then table.insert(filterList, scatterFolder) end
+		local scatterZones = workspace:FindFirstChild("ScatterZones")
+		if scatterZones then table.insert(filterList, scatterZones) end
 		raycastParams.FilterDescendantsInstances = filterList
 
 		-- Raycast from mouse position (PC) or screen center (mobile)

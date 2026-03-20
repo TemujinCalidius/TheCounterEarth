@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.20.0] - Boulder mining system
+
+### Added
+- **Boulder resource nodes** — 4 boulder variants spawn in ScatterZones; mine with pickaxe to harvest stone
+  - `boulder_1` — weathered granite with mossy cracks (6-8 HP, medium-large)
+  - `boulder_2` — flat-topped layered sandstone (4-7 HP, medium-small)
+  - `boulder_3` — smooth river boulder, spawns near water semi-submerged (3-5 HP, smallest)
+  - `boulder_4` — jagged cracked rock formation (8-10 HP, largest)
+- **Per-variant HP scaling** — each boulder type has its own HP range matching its size; HP randomised per spawn
+- **Rock proximity spawning** — small rocks now cluster near boulders (like twigs near trees) instead of spawning randomly
+- **Boulder config** — `GameplayConfig.Boulder` section (nodeHealth min/max, hitCooldown, harvestYield, respawn timers, spacing, rock spawn radius)
+- **Scale variance** — boulders (±20%) and trees (±15%) spawn at slightly randomised sizes for natural variety
+- **Stone chip particles** — particle burst on boulder hit (placeholder texture — upload to fill in `StoneChip` in AssetIds)
+- **Node health bars on boulders** — same green→yellow→red bar as trees, auto-hides after 4s
+- **Boulder collision** — `hasCollision` ScatterDef field preserves CanCollide on boulder parts (players can't walk through)
+- **`_YieldItemId` attribute** — boulders yield `stone` items (not the non-inventoriable `boulder` node item)
+- **Mining sound** — `MineRock` sound entry in AssetIds (placeholder — upload audio to fill in)
+- **Loading screen** — black overlay with "The Counter Earth" title and animated "Loading world..." text; fades out when scatter spawning completes via `ScatterReady` remote event
+- **`ScatterReady` remote event** — fired by ScatterSpawnService when all scatter phases complete; late-joining players also notified
+- **Reference art** — AI-generated concept images for all 4 boulder variants + stone icon in `assets/raw/reference/`
+
+### Changed
+- **Stone pickaxe icon** — updated to new icon (`rbxassetid://89146262634377`)
+- **Stone pickaxe gripCFrame** — tuned for custom mesh avatar hand
+- **Stone weight** — reduced from 2.0 to 0.4 kg (twice as heavy as a rock pickup)
+- **Stone icon** — updated to `rbxassetid://90151560373302`
+- **Template positioning** — models now raycast fresh to terrain after scaling for reliable ground contact
+
+### Removed
+- **ScatterSeed system** — removed seeded spawn, `ScatterSeed.luau` data file, `spawnFromSeed()`, `!scatter-snapshot` chat command. Scatter is now always random.
+
+---
+
+## [0.19.7] - Campfire/bedroll placement floating fix
+
+### Fixed
+- **Campfire and bedroll float above terrain** — placement raycast was hitting invisible ScatterZone parts instead of terrain; now excludes ScatterZones and Scatter folder from placement raycasts (same root cause as trunk floating fix in 0.19.5)
+
+---
+
 ## [0.19.6] - Stone axe mesh and grip tuning
 
 ### Added

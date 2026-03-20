@@ -143,7 +143,8 @@ Items.stone_pickaxe = {
 		harvestTags = { "stone", "ore" },
 	},
 	tags = { "tool", "pickaxe", "tier0", "primitive" },
-	icon = "rbxassetid://70659355065719",
+	icon = "rbxassetid://89146262634377",
+	gripCFrame = CFrame.new(0.068, -0.526, 0.241) * CFrame.Angles(math.rad(7.6), math.rad(-175.5), math.rad(-101.1)),
 }
 
 Items.stone_knife = {
@@ -214,11 +215,21 @@ Items.stone = {
 	displayName = "Stone",
 	description = "Solid stone chipped from a rock face.",
 	stackMax = 10,
-	weight = 2.0,
+	weight = 0.4,
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "stone", "tier1" },
-	icon = "rbxassetid://140587989430036",
+	icon = "rbxassetid://90151560373302",
+}
+
+Items.boulder = {
+	id = "boulder",
+	displayName = "Boulder",
+	description = "A large rock formation. Mine it with a pickaxe to extract stone.",
+	stackMax = 0,
+	weight = 0,
+	category = "resource_node",
+	tags = { "node", "stone", "scatter" },
 }
 
 Items.reed = {

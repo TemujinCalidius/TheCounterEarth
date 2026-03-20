@@ -106,10 +106,11 @@ local function shakeModel(model: Model)
 	local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
 	if not root or not model.Parent then return end
 
-	-- Trees are heavier — scale shake down for more realistic mass feel
+	-- Trees and boulders are heavier — scale shake down for more realistic mass feel
 	local isTree = model:GetAttribute("_IsTree") == true
 	local isCutPoint = model:GetAttribute("_CutPoint") == true
-	local shakeScale = if isTree or isCutPoint then 0.6 else 1.0
+	local isBoulder = model:GetAttribute("_ScatterItem") == "boulder"
+	local shakeScale = if isTree or isCutPoint or isBoulder then 0.6 else 1.0
 
 	-- For cut points, shake the trunk model instead (via TrunkRef ObjectValue)
 	local shakeTarget = model
@@ -123,7 +124,7 @@ local function shakeModel(model: Model)
 	local shakeRoot = shakeTarget.PrimaryPart or shakeTarget:FindFirstChildWhichIsA("BasePart")
 	if not shakeRoot or not shakeTarget.Parent then return end
 
-	local originalCFrame = shakeRoot.CFrame
+	local originalCFrame = shakeTarget:GetPivot()
 	task.spawn(function()
 		for i = 1, 6 do
 			if not shakeTarget.Parent then return end
@@ -156,6 +157,13 @@ local function emitWoodChips(model: Model)
 	local emitter = model:FindFirstChild("WoodChipParticles", true)
 	if emitter and emitter:IsA("ParticleEmitter") then
 		emitter:Emit(12)
+	end
+end
+
+local function emitStoneChips(model: Model)
+	local emitter = model:FindFirstChild("StoneChipParticles", true)
+	if emitter and emitter:IsA("ParticleEmitter") then
+		emitter:Emit(10)
 	end
 end
 
@@ -206,6 +214,7 @@ end
 local ITEM_HARVEST_SOUND: { [string]: string } = {
 	reed     = "HarvestReed",
 	oak_tree = "ChopWood",
+	boulder  = "MineRock",
 }
 
 local function playHarvestSound(model: Model)
@@ -383,6 +392,7 @@ harvestResult.OnClientEvent:Connect(function(targetModel: Model, qty: number, di
 		playHarvestSound(targetModel)
 		emitLeafParticles(targetModel)
 		emitWoodChips(targetModel)
+		emitStoneChips(targetModel)
 	end
 
 	-- Animation plays for the harvesting player (even with 0 yield, e.g. chopping trees)

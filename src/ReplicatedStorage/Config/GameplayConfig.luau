@@ -129,6 +129,19 @@ return {
 		MaxTier0Trees         = 8,        -- per server
 	},
 
+	Boulder = {
+		NodeHealthMin     = 5,        -- min hits with pickaxe (random per boulder)
+		NodeHealthMax     = 10,       -- max hits with pickaxe (random per boulder)
+		HitCooldown       = 1.5,      -- seconds between hits
+		HarvestYieldMin   = 1,        -- stone per hit
+		HarvestYieldMax   = 2,        -- stone per hit
+		RespawnMinSeconds = 1800,     -- 30 min
+		RespawnMaxSeconds = 3600,     -- 1 hour
+		MaxBoulders       = 6,        -- per server
+		MinBoulderSpacing = 20,       -- studs between boulders
+		RockSpawnRadius   = 10,       -- studs: how far rocks spread around boulders
+	},
+
 	EventBridge = {
 		Enabled = true,
 		EnableInStudio = false,

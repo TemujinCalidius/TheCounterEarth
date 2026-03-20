@@ -21,7 +21,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
-local ScatterSeed    = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ScatterSeed"))
 
 -- ── Scatter type definitions ──────────────────────────────────────────────
 
@@ -37,11 +36,17 @@ type ScatterDef = {
 	templates:  { string }?,  -- optional list of ScatterModel names to pick from randomly
 	nearWater:    boolean?,   -- spawn only near water edges (on land, water within ~6 studs)
 	nodeHealth:    number?,  -- HP of resource node; each hit deducts 1 (nil/0 = instant pickup)
+	nodeHealthMin: number?,  -- if set, randomise nodeHealth between min and nodeHealth
 	harvestYield:  { min: number, max: number }?,  -- items per hit
 	hitCooldown:   number?,  -- seconds between hits (client + server enforced)
 	requireTool:   string?,  -- harvestTag required on equipped tool (e.g. "reed")
 	groundSink:    number?,  -- studs to sink into ground (hides floating on slopes)
 	alignToSlope:  boolean?, -- tilt model to match terrain surface normal
+	-- Yield override
+	yieldItem:       string?,   -- item to add to inventory on harvest (defaults to itemId if nil)
+	-- Collision & scale
+	hasCollision:    boolean?,  -- keep CanCollide on parts (true for boulders; default false for non-trees)
+	scaleVariance:   number?,   -- random scale ± this fraction (e.g. 0.2 = 80%-120% size)
 	-- Tree system
 	isTree:          boolean?,  -- multi-phase tree (fell → trunk → logs → stump → regrow)
 	minSpacing:      number?,   -- min studs between this item and other scatter items
@@ -73,6 +78,9 @@ local SCATTER: { ScatterDef } = {
 		color      = Color3.fromRGB(140, 140, 140),
 		size       = Vector3.new(0.42, 0.3, 0.46),
 		templates  = { "rock_1", "rock_2", "rock_3" },
+		spawnNear     = "boulder",
+		spawnNearRadius = GameplayConfig.Boulder and GameplayConfig.Boulder.RockSpawnRadius or 10,
+		initPhase     = 2,  -- spawn after boulders
 	},
 	{
 		itemId     = "BrownMushroom",
@@ -114,9 +122,119 @@ local SCATTER: { ScatterDef } = {
 		alignToSlope  = false,
 		isTree        = true,
 		minSpacing    = GameplayConfig.Tree and GameplayConfig.Tree.MinTreeSpacing or 12,
+		scaleVariance = 0.15,
+		initPhase     = 1,
+	},
+	-- ── Boulders — split per template, HP scales with size ───────────────
+	-- Size order: boulder_3 (smallest) < boulder_2 < boulder_1 < boulder_4 (largest)
+	{   -- boulder_4: jagged cracked rock (largest, toughest)
+		itemId        = "boulder",
+		maxCount      = 2,
+		respawnMin    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMinSeconds or 1800,
+		respawnMax    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMaxSeconds or 3600,
+		color         = Color3.fromRGB(110, 105, 100),
+		size          = Vector3.new(5, 4, 5),
+		templates     = { "boulder_4" },
+		nodeHealth    = 10,
+		nodeHealthMin = 8,
+		harvestYield  = {
+			min = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMin or 1,
+			max = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMax or 2,
+		},
+		hitCooldown   = GameplayConfig.Boulder and GameplayConfig.Boulder.HitCooldown or 1.5,
+		requireTool   = "stone",
+		yieldItem     = "stone",
+		hasCollision  = true,
+		scaleVariance = 0.2,
+		groundSink    = 0.8,
+		alignToSlope  = false,
+		minSpacing    = GameplayConfig.Boulder and GameplayConfig.Boulder.MinBoulderSpacing or 20,
+		initPhase     = 1,
+	},
+	{   -- boulder_1: weathered granite with moss (medium-large)
+		itemId        = "boulder",
+		maxCount      = 2,
+		respawnMin    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMinSeconds or 1800,
+		respawnMax    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMaxSeconds or 3600,
+		color         = Color3.fromRGB(120, 115, 105),
+		size          = Vector3.new(4, 3, 4),
+		templates     = { "boulder_1" },
+		nodeHealth    = 8,
+		nodeHealthMin = 6,
+		harvestYield  = {
+			min = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMin or 1,
+			max = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMax or 2,
+		},
+		hitCooldown   = GameplayConfig.Boulder and GameplayConfig.Boulder.HitCooldown or 1.5,
+		requireTool   = "stone",
+		yieldItem     = "stone",
+		hasCollision  = true,
+		scaleVariance = 0.2,
+		groundSink    = 0.8,
+		alignToSlope  = false,
+		minSpacing    = GameplayConfig.Boulder and GameplayConfig.Boulder.MinBoulderSpacing or 20,
+		initPhase     = 1,
+	},
+	{   -- boulder_2: flat-topped sandstone (medium-small)
+		itemId        = "boulder",
+		maxCount      = 2,
+		respawnMin    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMinSeconds or 1800,
+		respawnMax    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMaxSeconds or 3600,
+		color         = Color3.fromRGB(130, 120, 100),
+		size          = Vector3.new(3.5, 2.5, 3.5),
+		templates     = { "boulder_2" },
+		nodeHealth    = 7,
+		nodeHealthMin = 4,
+		harvestYield  = {
+			min = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMin or 1,
+			max = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMax or 2,
+		},
+		hitCooldown   = GameplayConfig.Boulder and GameplayConfig.Boulder.HitCooldown or 1.5,
+		requireTool   = "stone",
+		yieldItem     = "stone",
+		hasCollision  = true,
+		scaleVariance = 0.2,
+		groundSink    = 0.6,
+		alignToSlope  = false,
+		minSpacing    = GameplayConfig.Boulder and GameplayConfig.Boulder.MinBoulderSpacing or 20,
+		initPhase     = 1,
+	},
+	{   -- boulder_3: round river boulder (smallest, near water)
+		itemId        = "boulder",
+		maxCount      = 3,
+		respawnMin    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMinSeconds or 1800,
+		respawnMax    = GameplayConfig.Boulder and GameplayConfig.Boulder.RespawnMaxSeconds or 3600,
+		color         = Color3.fromRGB(100, 105, 110),
+		size          = Vector3.new(2.5, 2, 2.5),
+		templates     = { "boulder_3" },
+		nodeHealth    = 5,
+		nodeHealthMin = 3,
+		harvestYield  = {
+			min = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMin or 1,
+			max = GameplayConfig.Boulder and GameplayConfig.Boulder.HarvestYieldMax or 2,
+		},
+		hitCooldown   = GameplayConfig.Boulder and GameplayConfig.Boulder.HitCooldown or 1.5,
+		requireTool   = "stone",
+		yieldItem     = "stone",
+		hasCollision  = true,
+		scaleVariance = 0.2,
+		nearWater     = true,
+		groundSink    = 1.2,       -- deeper sink for semi-submerged look
+		alignToSlope  = true,      -- follow shoreline contour
+		minSpacing    = GameplayConfig.Boulder and GameplayConfig.Boulder.MinBoulderSpacing or 20,
 		initPhase     = 1,
 	},
 }
+
+-- ── Scale variance helper ────────────────────────────────────────────────
+
+-- Applies random uniform scale to a model (±variance fraction, e.g. 0.2 = 80-120%).
+-- Multiplies against the model's current scale so it works with non-1.0 base scales.
+local function applyScaleVariance(model: Model, variance: number)
+	local baseScale = model:GetScale()
+	local multiplier = 1 + (math.random() * 2 - 1) * variance  -- e.g. 0.8 to 1.2
+	model:ScaleTo(baseScale * multiplier)
+end
 
 -- ── Spawn zone helpers ────────────────────────────────────────────────────
 
@@ -392,14 +510,25 @@ local function createScatterModel(cfg: ScatterDef): Model?
 		end
 
 		model.Name = displayName
+
+		-- Scale variance applied immediately after clone, before any positioning.
+		-- The bounding-box ground-sit calc below will use the final scaled size.
+		if cfg.scaleVariance and cfg.scaleVariance > 0 then
+			applyScaleVariance(model, cfg.scaleVariance)
+		end
+
 		model:SetAttribute("_ScatterItem", cfg.itemId)
 		model:SetAttribute("_TemplateName", templateName)
 		if cfg.nodeHealth and cfg.nodeHealth > 0 then
-			model:SetAttribute("_NodeHealth", cfg.nodeHealth)
-			model:SetAttribute("_NodeMaxHealth", cfg.nodeHealth)
+			local hp = cfg.nodeHealthMin and math.random(cfg.nodeHealthMin, cfg.nodeHealth) or cfg.nodeHealth
+			model:SetAttribute("_NodeHealth", hp)
+			model:SetAttribute("_NodeMaxHealth", hp)
 			model:SetAttribute("_HarvestYieldMin", cfg.harvestYield and cfg.harvestYield.min or 1)
 			model:SetAttribute("_HarvestYieldMax", cfg.harvestYield and cfg.harvestYield.max or 1)
 			model:SetAttribute("_HitCooldown", cfg.hitCooldown or 0.8)
+			if cfg.yieldItem then
+				model:SetAttribute("_YieldItemId", cfg.yieldItem)
+			end
 		end
 		if cfg.requireTool then
 			model:SetAttribute("_RequireTool", cfg.requireTool)
@@ -409,13 +538,12 @@ local function createScatterModel(cfg: ScatterDef): Model?
 			model:SetAttribute("_TreePhase", "standing")
 		end
 
-		-- Anchor all parts. For trees, preserve per-part CanCollide from the template
-		-- (trunk=true, canopy=false) so players can walk through leaves but not trunk.
-		-- For non-tree items, force CanCollide off.
+		-- Anchor all parts. For trees and items with hasCollision, preserve per-part
+		-- CanCollide from the template. For other items, force CanCollide off.
 		for _, desc in ipairs(model:GetDescendants()) do
 			if desc:IsA("BasePart") then
 				desc.Anchored = true
-				if not cfg.isTree then
+				if not cfg.isTree and not cfg.hasCollision then
 					desc.CanCollide = false
 				end
 			end
@@ -459,17 +587,56 @@ local function createScatterModel(cfg: ScatterDef): Model?
 			end
 		end
 
+		-- Add stone chip particles for boulders (burst on pickaxe hit)
+		if cfg.hasCollision and cfg.requireTool == "stone" then
+			local boulderPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+			if boulderPart and not model:FindFirstChild("StoneChipParticles", true) then
+				local stoneChips = Instance.new("ParticleEmitter")
+				stoneChips.Name = "StoneChipParticles"
+				stoneChips.Enabled = false
+				stoneChips.Texture = AssetIds.Particles.StoneChip or ""
+				stoneChips.Color = ColorSequence.new(Color3.fromRGB(160, 155, 145), Color3.fromRGB(110, 105, 95))
+				stoneChips.Size = NumberSequence.new(0.15, 0.05)
+				stoneChips.Lifetime = NumberRange.new(0.4, 1.0)
+				stoneChips.Speed = NumberRange.new(6, 14)
+				stoneChips.SpreadAngle = Vector2.new(90, 90)
+				stoneChips.Rate = 0
+				stoneChips.RotSpeed = NumberRange.new(-200, 200)
+				stoneChips.Rotation = NumberRange.new(0, 360)
+				stoneChips.Acceleration = Vector3.new(0, -20, 0)
+				stoneChips.Parent = boulderPart
+			end
+		end
+
+		-- Position model so its bounding-box bottom sits on the ground.
+		-- Fresh raycast at spawn XZ ensures correct terrain contact after scaling.
 		local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
 		if root then
+			-- Raycast down to get exact ground level at this XZ
+			local spawnPos = spawnCFrame.Position
+			local groundResult = Workspace:Raycast(
+				Vector3.new(spawnPos.X, spawnPos.Y + 200, spawnPos.Z),
+				Vector3.new(0, -500, 0),
+				scatterRayParams
+			)
+			local groundY = if groundResult
+				then groundResult.Position.Y - (cfg.groundSink or 0)
+				else spawnPos.Y
+
+			-- Measure how far the pivot is above the bounding-box bottom
 			local bbCFrame, modelSize = model:GetBoundingBox()
-			-- Lift so bounding-box bottom sits on the ground (spawnCFrame).
-			-- Works regardless of where the model pivot is (base or center).
 			local pivotY = model:GetPivot().Position.Y
 			local bbBottomY = bbCFrame.Position.Y - modelSize.Y * 0.5
 			local pivotAboveBottom = pivotY - bbBottomY
+
 			-- Per-template vertical offset (set _GroundOffset attribute in Studio)
 			local extraOffset = model:GetAttribute("_GroundOffset") or 0
-			model:PivotTo(spawnCFrame + Vector3.new(0, pivotAboveBottom + extraOffset, 0))
+
+			-- Place: ground level (with sink applied) + lift so bottom touches ground
+			local finalY = groundY + pivotAboveBottom + extraOffset
+			local placeCFrame = CFrame.new(spawnPos.X, finalY, spawnPos.Z)
+				* spawnCFrame.Rotation
+			model:PivotTo(placeCFrame)
 		end
 
 		model.Parent = scatterFolder
@@ -487,8 +654,9 @@ local function createScatterModel(cfg: ScatterDef): Model?
 		model:SetAttribute("_RequireTool", cfg.requireTool)
 	end
 	if cfg.nodeHealth and cfg.nodeHealth > 0 then
-		model:SetAttribute("_NodeHealth", cfg.nodeHealth)
-		model:SetAttribute("_NodeMaxHealth", cfg.nodeHealth)
+		local hp = cfg.nodeHealthMin and math.random(cfg.nodeHealthMin, cfg.nodeHealth) or cfg.nodeHealth
+		model:SetAttribute("_NodeHealth", hp)
+		model:SetAttribute("_NodeMaxHealth", hp)
 		model:SetAttribute("_HarvestYieldMin", cfg.harvestYield and cfg.harvestYield.min or 1)
 		model:SetAttribute("_HarvestYieldMax", cfg.harvestYield and cfg.harvestYield.max or 1)
 		model:SetAttribute("_HitCooldown", cfg.hitCooldown or 0.8)
@@ -498,15 +666,22 @@ local function createScatterModel(cfg: ScatterDef): Model?
 		model:SetAttribute("_TreePhase", "standing")
 	end
 
+	-- Compute placeholder size (apply scale variance to the size directly)
+	local placeholderSize = cfg.size
+	if cfg.scaleVariance and cfg.scaleVariance > 0 then
+		local multiplier = 1 + (math.random() * 2 - 1) * cfg.scaleVariance
+		placeholderSize = cfg.size * multiplier
+	end
+
 	local part          = Instance.new("Part")
 	part.Name           = "Body"
-	part.Size           = cfg.size
+	part.Size           = placeholderSize
 	part.Color          = cfg.color
 	part.Material       = Enum.Material.SmoothPlastic
 	part.Anchored       = true
-	part.CanCollide     = cfg.isTree or false
+	part.CanCollide     = cfg.isTree or cfg.hasCollision or false
 	part.CastShadow     = true
-	part.CFrame         = spawnCFrame + Vector3.new(0, cfg.size.Y * 0.5, 0)
+	part.CFrame         = spawnCFrame + Vector3.new(0, placeholderSize.Y * 0.5, 0)
 	part.Parent         = model
 	model.PrimaryPart   = part
 
@@ -537,6 +712,23 @@ local function createScatterModel(cfg: ScatterDef): Model?
 		chips.RotSpeed = NumberRange.new(-180, 180)
 		chips.Acceleration = Vector3.new(0, -15, 0)
 		chips.Parent = part
+	end
+
+	-- Stone chip particles for placeholder boulders
+	if cfg.hasCollision and cfg.requireTool == "stone" then
+		local stoneChips = Instance.new("ParticleEmitter")
+		stoneChips.Name = "StoneChipParticles"
+		stoneChips.Enabled = false
+		stoneChips.Color = ColorSequence.new(Color3.fromRGB(160, 155, 145), Color3.fromRGB(110, 105, 95))
+		stoneChips.Size = NumberSequence.new(0.15, 0.05)
+		stoneChips.Lifetime = NumberRange.new(0.4, 1.0)
+		stoneChips.Speed = NumberRange.new(6, 14)
+		stoneChips.SpreadAngle = Vector2.new(90, 90)
+		stoneChips.Rate = 0
+		stoneChips.RotSpeed = NumberRange.new(-200, 200)
+		stoneChips.Rotation = NumberRange.new(0, 360)
+		stoneChips.Acceleration = Vector3.new(0, -20, 0)
+		stoneChips.Parent = part
 	end
 
 	model.Parent = scatterFolder
@@ -612,113 +804,6 @@ end
 countsBindable.Parent = ServerStorage:FindFirstChild("ServerBindables")
 	or ServerStorage
 
--- ── Seeded spawn (instant load from baked positions) ────────────────────
-
--- Lookup table: itemId → ScatterDef
-local scatterByItemId: { [string]: ScatterDef } = {}
-for _, cfg in ipairs(SCATTER) do
-	scatterByItemId[cfg.itemId] = cfg
-end
-
--- Spawns a single item from a seed entry (no raycasting needed).
-local function spawnFromSeed(entry: { id: string, tpl: string, px: number, py: number, pz: number, rx: number, ry: number, rz: number }): Model?
-	local cfg = scatterByItemId[entry.id]
-	if not cfg then
-		warn(("[ScatterSeed] Unknown itemId in seed: %s"):format(entry.id))
-		return nil
-	end
-
-	local template = findTemplate(entry.tpl)
-	if not template then
-		warn(("[ScatterSeed] Template not found: %s"):format(entry.tpl))
-		return nil
-	end
-
-	local itemDef = ItemRegistry.get(cfg.itemId)
-	local displayName = itemDef and itemDef.displayName or cfg.itemId
-
-	local model: Model
-	if template:IsA("Model") then
-		model = template:Clone()
-	else
-		model = Instance.new("Model")
-		local part = template:Clone()
-		part.Parent = model
-		model.PrimaryPart = part
-	end
-
-	model.Name = displayName
-	model:SetAttribute("_ScatterItem", cfg.itemId)
-	model:SetAttribute("_TemplateName", entry.tpl)
-	if cfg.nodeHealth and cfg.nodeHealth > 0 then
-		model:SetAttribute("_NodeHealth", cfg.nodeHealth)
-		model:SetAttribute("_NodeMaxHealth", cfg.nodeHealth)
-		model:SetAttribute("_HarvestYieldMin", cfg.harvestYield and cfg.harvestYield.min or 1)
-		model:SetAttribute("_HarvestYieldMax", cfg.harvestYield and cfg.harvestYield.max or 1)
-		model:SetAttribute("_HitCooldown", cfg.hitCooldown or 0.8)
-	end
-	if cfg.requireTool then
-		model:SetAttribute("_RequireTool", cfg.requireTool)
-	end
-	if cfg.isTree then
-		model:SetAttribute("_IsTree", true)
-		model:SetAttribute("_TreePhase", "standing")
-	end
-
-	for _, desc in ipairs(model:GetDescendants()) do
-		if desc:IsA("BasePart") then
-			desc.Anchored = true
-			if not cfg.isTree then
-				desc.CanCollide = false
-			end
-		end
-	end
-
-	-- Add particle emitters for trees
-	if cfg.isTree then
-		local leafPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-		if leafPart and not model:FindFirstChild("LeafParticles", true) then
-			local emitter = Instance.new("ParticleEmitter")
-			emitter.Name = "LeafParticles"
-			emitter.Enabled = false
-			emitter.Texture = AssetIds.Particles.Leaf
-			emitter.Color = ColorSequence.new(Color3.fromRGB(90, 150, 60), Color3.fromRGB(50, 100, 25))
-			emitter.Size = NumberSequence.new(0.4, 0.15)
-			emitter.Lifetime = NumberRange.new(1.5, 3)
-			emitter.Speed = NumberRange.new(1, 3)
-			emitter.SpreadAngle = Vector2.new(60, 60)
-			emitter.Rate = 0
-			emitter.RotSpeed = NumberRange.new(-120, 120)
-			emitter.Rotation = NumberRange.new(0, 360)
-			emitter.Acceleration = Vector3.new(0, -4, 0)
-			emitter.Parent = leafPart
-		end
-		if leafPart and not model:FindFirstChild("WoodChipParticles", true) then
-			local chips = Instance.new("ParticleEmitter")
-			chips.Name = "WoodChipParticles"
-			chips.Enabled = false
-			chips.Texture = AssetIds.Particles.WoodChip
-			chips.Color = ColorSequence.new(Color3.fromRGB(180, 130, 70), Color3.fromRGB(140, 95, 50))
-			chips.Size = NumberSequence.new(0.2, 0.08)
-			chips.Lifetime = NumberRange.new(0.5, 1.2)
-			chips.Speed = NumberRange.new(4, 10)
-			chips.SpreadAngle = Vector2.new(80, 80)
-			chips.Rate = 0
-			chips.RotSpeed = NumberRange.new(-180, 180)
-			chips.Rotation = NumberRange.new(0, 360)
-			chips.Acceleration = Vector3.new(0, -15, 0)
-			chips.Parent = leafPart
-		end
-	end
-
-	-- Position from seed CFrame (no raycasting needed)
-	local cf = CFrame.new(entry.px, entry.py, entry.pz)
-		* CFrame.Angles(entry.rx, entry.ry, entry.rz)
-	model:PivotTo(cf)
-	model.Parent = scatterFolder
-	return model
-end
-
 -- ── Initial population ──────────────────────────────────────────────────
 
 local BATCH_SIZE = 5 -- items per frame during initial population
@@ -761,93 +846,25 @@ for _, cfg in ipairs(SCATTER) do
 	end
 end
 
--- Try seeded spawn first (instant), then fill remaining with random
-if #ScatterSeed > 0 then
-	print(("[ScatterSpawn] Loading %d items from seed..."):format(#ScatterSeed))
-	local seeded = 0
-	for _, entry in ipairs(ScatterSeed) do
-		local cfg = scatterByItemId[entry.id]
-		if cfg and (counts[entry.id] or 0) < cfg.maxCount then
-			local model = spawnFromSeed(entry)
-			if model then
-				counts[entry.id] = (counts[entry.id] or 0) + 1
-				seeded += 1
+-- ── Fire ScatterReady remote when all phases complete ───────────────────
 
-				-- Hook up respawn for non-tree items
-				if not cfg.isTree then
-					model.AncestryChanged:Connect(function()
-						if not model.Parent then
-							counts[cfg.itemId] = math.max(0, counts[cfg.itemId] - 1)
-							local delay = cfg.respawnMin + math.random() * (cfg.respawnMax - cfg.respawnMin)
-							task.delay(delay, function()
-								spawnOne(cfg)
-							end)
-						end
-					end)
-				end
-			end
-		end
-	end
-	print(("[ScatterSpawn] Seeded %d items. Filling remaining with random spawns..."):format(seeded))
-end
+local scatterReadyRemote = Instance.new("RemoteEvent")
+scatterReadyRemote.Name = "ScatterReady"
+scatterReadyRemote.Parent = ReplicatedStorage:FindFirstChild("Remotes")
+	or ReplicatedStorage
 
--- Fill any remaining counts (new items added since last snapshot, or seed was empty)
 populatePhase(phase1, function()
 	task.delay(1, function()
-		populatePhase(phase2)
-	end)
-end)
-
--- ── Snapshot chat command ────────────────────────────────────────────────
--- Type !scatter-snapshot in chat to capture all current scatter positions.
--- Output is a ready-to-paste Luau module for ScatterSeed.luau.
-
-local GAME_OWNER_ID = game.CreatorId
-
-local function captureSnapshot()
-	local entries: { string } = {}
-	for _, child in ipairs(scatterFolder:GetChildren()) do
-		if not child:IsA("Model") then continue end
-		local itemId = child:GetAttribute("_ScatterItem")
-		if not itemId then continue end
-
-		-- Skip non-natural items (cut points, log segments, stumps, fallen trunks)
-		if child:GetAttribute("_CutPoint") then continue end
-		if child:GetAttribute("_TrunkSegment") then continue end
-		if child:GetAttribute("_TreeStump") then continue end
-		local phase = child:GetAttribute("_TreePhase")
-		if phase == "trunk" or phase == "falling" then continue end
-
-		local tplName = child:GetAttribute("_TemplateName") or itemId
-		local pivot = child:GetPivot()
-		local px, py, pz = pivot.Position.X, pivot.Position.Y, pivot.Position.Z
-		local rx, ry, rz = pivot:ToEulerAnglesYXZ()
-
-		table.insert(entries, ("{id=%q,tpl=%q,px=%.2f,py=%.2f,pz=%.2f,rx=%.4f,ry=%.4f,rz=%.4f}"):format(
-			itemId, tplName, px, py, pz, rx, ry, rz
-		))
-	end
-
-	-- Print as a complete Luau module
-	print("── SCATTER SEED START ──")
-	print("-- Copy everything between START and END into ScatterSeed.luau")
-	print("return {")
-	for _, line in ipairs(entries) do
-		print(line .. ",")
-	end
-	print("}")
-	print(("── SCATTER SEED END ── (%d entries)"):format(#entries))
-end
-
-Players.PlayerAdded:Connect(function(player)
-	player.Chatted:Connect(function(message)
-		if message:lower() ~= "!scatter-snapshot" then return end
-		-- Allow game owner or Studio testing (CreatorId 0 in local test)
-		if player.UserId ~= GAME_OWNER_ID and GAME_OWNER_ID ~= 0 then
-			warn("[ScatterSnapshot] Denied — not game owner")
-			return
-		end
-		print(("[ScatterSnapshot] Capturing snapshot for %s..."):format(player.Name))
-		captureSnapshot()
+		populatePhase(phase2, function()
+			-- Notify all connected clients that the world is ready
+			scatterReadyRemote:FireAllClients()
+			-- Also notify any players who join later
+			Players.PlayerAdded:Connect(function(player)
+				task.delay(1, function()
+					scatterReadyRemote:FireClient(player)
+				end)
+			end)
+			print("[ScatterSpawn] All phases complete — world ready.")
+		end)
 	end)
 end)
