@@ -263,6 +263,28 @@ achLoadFunc.OnInvoke = function(player: Player, savedData: any?)
 
 	playerStates[player] = state
 
+	-- Silent retroactive sweep: if counters already meet thresholds but
+	-- unlocked dict is missing entries (e.g. first load, incomplete save),
+	-- mark them as unlocked without firing toasts or web events.
+	local backfilled = 0
+	for _, ach in ipairs(AchievementConfig.Achievements) do
+		if not state.unlocked[ach.key] then
+			local val = state.counters[ach.counter] or 0
+			if val >= ach.threshold then
+				state.unlocked[ach.key] = os.time()
+				backfilled += 1
+			end
+		end
+	end
+
+	-- Debug: show what was restored
+	local counterCount = 0
+	for _ in pairs(state.counters) do counterCount += 1 end
+	local unlockedCount = 0
+	for _ in pairs(state.unlocked) do unlockedCount += 1 end
+	print(string.format("[ACHIEVEMENTS] Loaded %d counters, %d unlocked (%d backfilled) for %s",
+		counterCount, unlockedCount, backfilled, player.Name))
+
 	-- Update login streak on load
 	updateLoginStreak(player, state)
 

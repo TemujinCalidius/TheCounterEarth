@@ -49,14 +49,40 @@ statusLabel.Font                    = Enum.Font.Gotham
 statusLabel.TextSize                = 18
 statusLabel.Parent                  = bg
 
--- Dots animation
-local dots = 0
-local animConn: RBXScriptConnection? = nil
-animConn = task.spawn(function()
+-- Rotating flavor messages
+local STATUS_MESSAGES = {
+	"Scattering twigs...",
+	"Placing boulders...",
+	"Growing trees...",
+	"Sharpening stone axes...",
+	"Lighting campfires...",
+	"Hiding mushrooms...",
+	"Rolling rocks downhill...",
+	"Weaving reed satchels...",
+	"Forging stone tools...",
+	"Preparing the wilderness...",
+	"Convincing deer to cooperate...",
+	"Carving riverbeds...",
+	"Stacking firewood...",
+	"Seasoning the stew...",
+	"Polishing copper coins...",
+	"Consulting the ancient map...",
+	"Teaching fish to swim...",
+	"Counting mushrooms...",
+}
+
+-- Shuffle so each load feels different
+for i = #STATUS_MESSAGES, 2, -1 do
+	local j = math.random(1, i)
+	STATUS_MESSAGES[i], STATUS_MESSAGES[j] = STATUS_MESSAGES[j], STATUS_MESSAGES[i]
+end
+
+local msgIndex = 0
+task.spawn(function()
 	while screenGui.Parent do
-		dots = (dots % 3) + 1
-		statusLabel.Text = "Loading world" .. string.rep(".", dots)
-		task.wait(0.4)
+		msgIndex = (msgIndex % #STATUS_MESSAGES) + 1
+		statusLabel.Text = STATUS_MESSAGES[msgIndex]
+		task.wait(2)
 	end
 end)
 

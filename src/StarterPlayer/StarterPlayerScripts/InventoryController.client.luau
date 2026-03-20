@@ -2260,6 +2260,22 @@ local function refreshItemList()
 				qtyLbl.Parent             = slot
 			end
 
+			-- Weight badge (bottom-left)
+			if def and def.weight and def.weight > 0 then
+				local totalWeight = def.weight * qty
+				local weightLbl = Instance.new("TextLabel")
+				weightLbl.Size               = UDim2.new(1, -4, 0, 14)
+				weightLbl.Position           = UDim2.new(0, 2, 1, -16)
+				weightLbl.BackgroundTransparency = 1
+				weightLbl.Text               = string.format("%.1fkg", totalWeight)
+				weightLbl.TextColor3         = MUTED
+				weightLbl.Font               = FONT
+				weightLbl.TextSize           = 9
+				weightLbl.TextXAlignment     = Enum.TextXAlignment.Left
+				weightLbl.ZIndex             = slot.ZIndex + 1
+				weightLbl.Parent             = slot
+			end
+
 			-- Spoil bar (thin bar at bottom for perishable items)
 			if def and def.perishSeconds then
 				local expiryStr = player:GetAttribute("InvExpires_" .. n)

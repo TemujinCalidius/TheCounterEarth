@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.21.0] - Achievement fix, inventory weights, loading screen polish
+
+### Fixed
+- **Achievement re-award bug** — achievements no longer re-fire toasts/web events on relog; added silent retroactive sweep that backfills the `unlocked` dict from counters on load
+- **Redundant `first_craft` event** — removed transient `_HasCrafted` attribute that fired a duplicate EventBridge event every session
+
+### Added
+- **Stack weight labels** — inventory slots now show total stack weight (bottom-left, e.g. "1.0kg") in muted text alongside the quantity badge
+- **Loading screen flavor text** — rotating survival-themed humor messages ("Convincing deer to cooperate...", "Teaching fish to swim...", etc.) replace static "Loading world..." dots
+
+---
+
 ## [0.20.0] - Boulder mining system
 
 ### Added

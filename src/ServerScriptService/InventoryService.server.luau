@@ -1338,14 +1338,6 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		xpGained = (recipe.output.qty or 1) * 10,
 	})
 
-	if not player:GetAttribute("_HasCrafted") then
-		player:SetAttribute("_HasCrafted", true)
-		EventBridge.fire("first_craft", player, {
-			itemId = recipe.output.itemId,
-			itemName = craftDef and craftDef.displayName or recipe.output.itemId,
-		})
-	end
-
 	cleanOrphanedHotbarPins(player)
 end)
 
