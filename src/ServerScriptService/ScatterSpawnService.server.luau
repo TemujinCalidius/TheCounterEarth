@@ -381,6 +381,8 @@ do
 	local filterList = { scatterFolder }
 	local zonesFolder = Workspace:FindFirstChild("ScatterZones")
 	if zonesFolder then table.insert(filterList, zonesFolder) end
+	local animalZones = Workspace:FindFirstChild("AnimalZones")
+	if animalZones then table.insert(filterList, animalZones) end
 	scatterRayParams.FilterDescendantsInstances = filterList
 end
 

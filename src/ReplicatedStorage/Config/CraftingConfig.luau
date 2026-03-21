@@ -81,5 +81,52 @@ return {
 			},
 			output = { itemId = "satchel_reed", qty = 1 },
 		},
+		{
+			id          = "stone_spear",
+			displayName = "Stone Spear",
+			description = "A long stone-tipped staff for combat.",
+			station     = "hand",
+			skillLevel  = 1,
+			ingredients = {
+				{ itemId = "twig",   qty = 2 },
+				{ itemId = "rock",   qty = 1 },
+			},
+			output = { itemId = "stone_spear", qty = 1 },
+		},
+		{
+			id          = "primitive_bow",
+			displayName = "Primitive Bow",
+			description = "A crude bow for ranged combat.",
+			station     = "hand",
+			skillLevel  = 1,
+			ingredients = {
+				{ itemId = "twig",   qty = 2 },
+				{ itemId = "reed",   qty = 3 },
+			},
+			output = { itemId = "primitive_bow", qty = 1 },
+		},
+		{
+			id          = "stone_arrow",
+			displayName = "Stone Arrows",
+			description = "Five crude stone-tipped arrows.",
+			station     = "hand",
+			skillLevel  = 1,
+			ingredients = {
+				{ itemId = "twig",   qty = 1 },
+				{ itemId = "rock",   qty = 1 },
+			},
+			output = { itemId = "stone_arrow", qty = 5 },
+		},
+		{
+			id          = "reed_quiver",
+			displayName = "Reed Quiver",
+			description = "A woven reed quiver. Speeds up arrow nocking.",
+			station     = "hand",
+			skillLevel  = 1,
+			ingredients = {
+				{ itemId = "reed",   qty = 5 },
+			},
+			output = { itemId = "reed_quiver", qty = 1 },
+		},
 	},
 }

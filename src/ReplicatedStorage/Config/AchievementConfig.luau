@@ -111,6 +111,24 @@ AchievementConfig.Achievements = {
 	-- Item Consumption (2)
 	{ key = "consume_50",  name = "Hungry Hungry",   icon = "\u{1F356}", category = "Consumption", counter = "items_consumed", threshold = 50,  desc = "Consume 50 food or drink items." },
 	{ key = "consume_200", name = "Bottomless Pit",  icon = "\u{1F573}", category = "Consumption", counter = "items_consumed", threshold = 200, desc = "Consume 200 items. An insatiable appetite." },
+
+	-- Hunting (3)
+	{ key = "first_hunt",  name = "First Blood",     icon = "\u{1F3AF}", category = "Hunting", counter = "animals_killed",  threshold = 1,  desc = "Kill your first animal." },
+	{ key = "hunter_10",   name = "Hunter",           icon = "\u{1F98C}", category = "Hunting", counter = "animals_killed",  threshold = 10, desc = "Kill 10 animals." },
+	{ key = "hunter_50",   name = "Apex Predator",    icon = "\u{1F43A}", category = "Hunting", counter = "animals_killed",  threshold = 50, desc = "Kill 50 animals. Top of the food chain." },
+
+	-- Butchering (2)
+	{ key = "first_skin",   name = "Skinning 101",    icon = "\u{1FA93}", category = "Butchering", counter = "skins_total",    threshold = 1,  desc = "Skin your first animal carcass." },
+	{ key = "butcher_25",   name = "Master Butcher",   icon = "\u{1F356}", category = "Butchering", counter = "butcher_total",  threshold = 25, desc = "Butcher 25 carcasses. Nothing goes to waste." },
+
+	-- Ranged Combat (3)
+	{ key = "first_bow_kill", name = "Marksman",       icon = "\u{1F3F9}", category = "Ranged", counter = "bow_kills",       threshold = 1,  desc = "Kill something with a bow for the first time." },
+	{ key = "bow_kills_25",   name = "Sharpshooter",   icon = "\u{1F3AF}", category = "Ranged", counter = "bow_kills",       threshold = 25, desc = "Get 25 bow kills. A deadly aim." },
+	{ key = "arrows_100",     name = "Quiver Full of Stories", icon = "\u{27B0}", category = "Ranged", counter = "arrows_fired", threshold = 100, desc = "Fire 100 arrows total." },
+
+	-- Melee Combat (2)
+	{ key = "first_spear_kill", name = "Stick 'Em",    icon = "\u{1F531}", category = "Melee", counter = "spear_kills",     threshold = 1,  desc = "Kill something with a spear." },
+	{ key = "spear_kills_25",   name = "Phalanx",      icon = "\u{2694}",  category = "Melee", counter = "spear_kills",     threshold = 25, desc = "Get 25 spear kills. A true warrior." },
 }
 
 -- ── Build lookup tables ─────────────────────────────────────────────────
@@ -136,6 +154,7 @@ AchievementConfig.TotalCount = #AchievementConfig.Achievements
 -- Ordered category list for UI filter bar
 AchievementConfig.Categories = {
 	"Deaths", "Death Causes", "Survival", "Playtime", "PvP Kills",
+	"Hunting", "Butchering", "Ranged", "Melee",
 	"Trading", "Harvesting", "Crafting", "Cooking", "Wealth",
 	"Login Streaks", "Tool Breaking", "Close Calls", "Campfire",
 	"Spoilage", "Bedroll", "Consumption",
@@ -166,6 +185,12 @@ AchievementConfig.EventMappings = {
 	campfire_session           = { { counter = "campfire_sessions" } },
 	spoilage_lost              = { { counter = "spoilage_lost", valueFrom = function(d) return d.totalSpoiled or 1 end } },
 	bedroll_placed_near_others = { { counter = "bedroll_near_others" } },
+	animal_killed              = { { counter = "animals_killed" } },
+	animal_skinned             = { { counter = "skins_total" } },
+	butcher_complete           = { { counter = "butcher_total" } },
+	bow_kill                   = { { counter = "bow_kills" } },
+	spear_kill                 = { { counter = "spear_kills" } },
+	arrow_fired                = { { counter = "arrows_fired" } },
 }
 
 return AchievementConfig

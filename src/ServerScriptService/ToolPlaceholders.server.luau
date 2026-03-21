@@ -45,6 +45,26 @@ local PLACEHOLDERS = {
 		headColor   = Color3.fromRGB(160, 160, 160),
 		headOffset  = Vector3.new(0, 0.15, -0.9),
 	},
+	{
+		name = "stone_spear",
+		-- Long shaft
+		handleSize  = Vector3.new(0.2, 0.2, 5.0),
+		handleColor = Color3.fromRGB(101, 67, 33),
+		-- Stone tip
+		headSize    = Vector3.new(0.15, 0.4, 0.8),
+		headColor   = Color3.fromRGB(140, 140, 140),
+		headOffset  = Vector3.new(0, 0, -2.6),
+	},
+	{
+		name = "primitive_bow",
+		-- Curved stave (bow body)
+		handleSize  = Vector3.new(0.15, 0.15, 3.0),
+		handleColor = Color3.fromRGB(101, 67, 33),
+		-- String (thin cylinder)
+		headSize    = Vector3.new(0.03, 0.03, 2.8),
+		headColor   = Color3.fromRGB(180, 160, 120),
+		headOffset  = Vector3.new(0, 0.3, 0),
+	},
 }
 
 for _, info in ipairs(PLACEHOLDERS) do

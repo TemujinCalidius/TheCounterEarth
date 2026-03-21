@@ -7,10 +7,26 @@
 --   Negative values mean the stat decreases (e.g. raw meat makes you more thirsty).
 
 export type ToolInfo = {
-	kind: string,            -- "axe" | "pickaxe" | "knife" | "weapon"
+	kind: string,            -- "axe" | "pickaxe" | "knife"
 	tier: number,            -- 0 = primitive, 1 = basic, 2 = refined ...
 	harvestTags: { string }?, -- resource node tags this tool can harvest
-	damage: number?,         -- melee damage (weapons only)
+	damage: number?,         -- (legacy, unused — damage now on WeaponInfo)
+}
+
+export type WeaponInfo = {
+	kind: string,            -- "spear" | "bow"
+	tier: number,            -- 0 = primitive, 1 = basic, 2 = refined ...
+	damage: number,          -- base damage per hit/shot
+	attackCooldown: number?, -- seconds between attacks (melee weapons)
+	attackRange: number?,    -- studs (melee weapons)
+	drawTimeMin: number?,    -- seconds: minimum draw before firing (bows)
+	drawTimeMax: number?,    -- seconds: full draw for max damage (bows)
+	ammoItemId: string?,     -- required ammo item (bows)
+}
+
+export type EquipmentInfo = {
+	slot: string,            -- "Quiver"
+	drawSpeedMultiplier: number?,  -- multiplier for bow draw cycle time
 }
 
 export type CurrencyInfo = {
@@ -53,6 +69,8 @@ export type ItemDef = {
 	coinPouch: CoinPouchInfo?,
 	backpack: BackpackInfo?,
 	tool: ToolInfo?,
+	weapon: WeaponInfo?,
+	equipment: EquipmentInfo?,
 	tags: { string },
 	icon: string,            -- rbxassetid://... ; "" until uploaded
 	meshId: string?,         -- rbxassetid://... for 3D mesh; nil = no mesh
@@ -160,9 +178,8 @@ Items.stone_knife = {
 		kind = "knife",
 		tier = 0,
 		harvestTags = { "reed", "herb", "hide" },
-		damage = 3,
 	},
-	tags = { "tool", "knife", "weapon", "tier0", "primitive" },
+	tags = { "tool", "knife", "tier0", "primitive" },
 	icon = "rbxassetid://122399662411193",
 }
 
@@ -443,6 +460,156 @@ Items.pack_leather = {
 	backpack = { slots = 20, maxWeight = 30 },
 	tags = { "container", "backpack", "tier1" },
 	icon = "rbxassetid://122038665945878",
+}
+
+-- ---------------------------------------------------------------------------
+-- WEAPONS — dedicated combat items, NOT harvest tools
+-- ---------------------------------------------------------------------------
+
+Items.stone_spear = {
+	id = "stone_spear",
+	displayName = "Stone Spear",
+	description = "A long stone-tipped staff. Keeps enemies at arm's length.",
+	stackMax = 1,
+	weight = 0.6,
+	slotSize = { w = 1, h = 2 },
+	category = "weapon",
+	durabilityMax = 25,
+	weapon = {
+		kind = "spear",
+		tier = 0,
+		damage = 10,
+		attackCooldown = 0.8,
+		attackRange = 8,
+	},
+	tags = { "weapon", "spear", "tier0", "primitive" },
+	gripCFrame = CFrame.new(0, -1.2, 0) * CFrame.Angles(math.rad(0), 0, math.rad(-90)),
+	icon = "",
+}
+
+Items.primitive_bow = {
+	id = "primitive_bow",
+	displayName = "Primitive Bow",
+	description = "A crude bow made from twigs and reed. Slow but deadly.",
+	stackMax = 1,
+	weight = 0.5,
+	slotSize = { w = 1, h = 2 },
+	category = "weapon",
+	durabilityMax = 60,
+	weapon = {
+		kind = "bow",
+		tier = 0,
+		damage = 15,
+		drawTimeMin = 0.3,
+		drawTimeMax = 1.5,
+		ammoItemId = "stone_arrow",
+	},
+	tags = { "weapon", "bow", "tier0", "primitive" },
+	icon = "",
+}
+
+-- ---------------------------------------------------------------------------
+-- AMMO
+-- ---------------------------------------------------------------------------
+
+Items.stone_arrow = {
+	id = "stone_arrow",
+	displayName = "Stone Arrow",
+	description = "A crude stone-tipped arrow. Flies true enough.",
+	stackMax = 20,
+	weight = 0.1,
+	slotSize = { w = 1, h = 1 },
+	category = "ammo",
+	tags = { "ammo", "arrow", "tier0" },
+	icon = "",
+}
+
+-- ---------------------------------------------------------------------------
+-- EQUIPMENT — worn gear, not held
+-- ---------------------------------------------------------------------------
+
+Items.reed_quiver = {
+	id = "reed_quiver",
+	displayName = "Reed Quiver",
+	description = "Woven reed quiver. Dramatically speeds up arrow nocking.",
+	stackMax = 1,
+	weight = 0.2,
+	slotSize = { w = 1, h = 2 },
+	category = "equipment",
+	equipment = {
+		slot = "Quiver",
+		drawSpeedMultiplier = 0.4,
+	},
+	tags = { "equipment", "quiver", "tier0" },
+	icon = "",
+}
+
+-- ---------------------------------------------------------------------------
+-- HUNTING YIELDS — butchering drops
+-- ---------------------------------------------------------------------------
+
+Items.raw_venison = {
+	id = "raw_venison",
+	displayName = "Raw Venison",
+	description = "Fresh deer meat. Cook it before eating unless you like food poisoning.",
+	stackMax = 10,
+	weight = 0.4,
+	slotSize = { w = 1, h = 1 },
+	category = "food",
+	perishSeconds = 1800,
+	onConsume = { hunger = 15, poison = 20 },
+	tags = { "food", "raw", "meat" },
+	icon = "",
+}
+
+Items.cooked_venison = {
+	id = "cooked_venison",
+	displayName = "Cooked Venison",
+	description = "Tender roasted venison. Hearty and filling.",
+	stackMax = 10,
+	weight = 0.3,
+	slotSize = { w = 1, h = 1 },
+	category = "food",
+	perishSeconds = 3600,
+	onConsume = { hunger = 40, health = 5 },
+	tags = { "food", "cooked", "meat" },
+	icon = "",
+}
+
+Items.crude_hide = {
+	id = "crude_hide",
+	displayName = "Crude Hide",
+	description = "Roughly skinned animal hide. Needs tanning.",
+	stackMax = 10,
+	weight = 0.3,
+	slotSize = { w = 1, h = 1 },
+	category = "material",
+	tags = { "material", "hide", "tier0" },
+	icon = "",
+}
+
+Items.bone = {
+	id = "bone",
+	displayName = "Bone",
+	description = "Animal bone. Used in crafting and alchemy.",
+	stackMax = 20,
+	weight = 0.2,
+	slotSize = { w = 1, h = 1 },
+	category = "material",
+	tags = { "material", "bone", "alchemy" },
+	icon = "",
+}
+
+Items.sinew = {
+	id = "sinew",
+	displayName = "Sinew",
+	description = "Tough animal sinew. Useful for binding and bowstrings.",
+	stackMax = 10,
+	weight = 0.1,
+	slotSize = { w = 1, h = 1 },
+	category = "material",
+	tags = { "material", "sinew", "binding" },
+	icon = "",
 }
 
 -- ---------------------------------------------------------------------------

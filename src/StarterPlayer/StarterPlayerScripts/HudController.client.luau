@@ -111,8 +111,11 @@ local unpinFromHotbarRemote   = remotesFolder:WaitForChild("UnpinFromHotbar")
 local swapHotbarSlotsRemote   = remotesFolder:WaitForChild("SwapHotbarSlots")
 local useItemRemote           = remotesFolder:WaitForChild("UseItem")
 local harvestHitRemote        = remotesFolder:WaitForChild("HarvestHit")
+local combatAttackRemote      = remotesFolder:WaitForChild("CombatAttackRequest")
 local HARVEST_HIT_COOLDOWN    = 1.5
+local COMBAT_ATTACK_COOLDOWN  = 0.5
 local lastHarvestHitTime      = 0
+local lastCombatAttackTime    = 0
 local lastHarvestTarget: Model? = nil
 local startPlacementEvent     = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -1114,6 +1117,18 @@ local function tryAttackWithEquippedItem()
 	-- Placeable: enter placement mode instead of attacking
 	if def and def.category == "placeable" then
 		startPlacementEvent:Fire(itemValue)
+		return
+	end
+
+	-- Weapon: route to CombatService (bows handled by BowController)
+	if def and def.category == "weapon" then
+		if def.weapon and def.weapon.kind == "bow" then
+			return -- BowController handles bow input
+		end
+		local now = os.clock()
+		if (now - lastCombatAttackTime) < COMBAT_ATTACK_COOLDOWN then return end
+		lastCombatAttackTime = now
+		combatAttackRemote:FireServer()
 		return
 	end
 

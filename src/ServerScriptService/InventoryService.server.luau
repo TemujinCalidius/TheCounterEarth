@@ -60,6 +60,8 @@ local takeLootBagItemRemote   = makeRemote("TakeLootBagItem")
 local craftFailedRemote       = makeRemote("CraftFailed")
 local equipBackpackRemote     = makeRemote("EquipBackpack")
 local unequipBackpackRemote   = makeRemote("UnequipBackpack")
+local equipQuiverRemote       = makeRemote("EquipQuiver")
+local unequipQuiverRemote     = makeRemote("UnequipQuiver")
 
 -- ── Loot bag viewer tracking ────────────────────────────────────────────
 local lootBagViewers: { [Model]: { Player } } = {}
@@ -191,8 +193,15 @@ local function setSlot(player: Player, n: number, itemId: string, qty: number)
 		player:SetAttribute("InvExpires_" .. n, nil)
 		player:SetAttribute("InvDurability_" .. n, nil)
 	else
+		local prevItem = player:GetAttribute("InvSlot_" .. n)
 		player:SetAttribute("InvSlot_" .. n, itemId)
 		player:SetAttribute("InvQty_" .. n, math.floor(qty + 0.5))
+		-- Clear stale expiry/durability if the item ID changed (prevents spoilage
+		-- system from expiring a non-perishable item using leftover timestamps)
+		if prevItem ~= itemId then
+			player:SetAttribute("InvExpires_" .. n, nil)
+			player:SetAttribute("InvDurability_" .. n, nil)
+		end
 	end
 end
 
@@ -1057,6 +1066,76 @@ invGetQtyFunc.OnInvoke = function(player: Player, itemId: string): number
 	return getTotalQty(player, id)
 end
 
+-- ── Durability deduction (for CombatService, ButcherService, etc.) ────────
+-- Deducts N durability from the first stack of itemId found in inventory.
+-- Returns true if the item survived, false if it broke (or wasn't found).
+local invDurabilityDeductFunc = Instance.new("BindableFunction")
+invDurabilityDeductFunc.Name = "DurabilityDeduct"
+invDurabilityDeductFunc.Parent = invBindables
+invDurabilityDeductFunc.OnInvoke = function(player: Player, itemId: string, amount: number?): boolean
+	local id = sanitizeItemId(itemId)
+	if id == "" then return false end
+	local toolDef = ItemRegistry.get(id)
+	if not toolDef or not toolDef.durabilityMax then return false end
+
+	local cost = amount or 1
+
+	-- Find inventory slot holding this item
+	local toolInvSlot: number? = nil
+	for n = 1, getMaxSlots(player) do
+		if getSlotItemId(player, n) == id then
+			toolInvSlot = n
+			break
+		end
+	end
+	if not toolInvSlot then return false end
+
+	local durs = getSlotDurabilities(player, toolInvSlot)
+	if #durs == 0 then return true end -- no durability tracking
+
+	durs[1] -= cost
+	if durs[1] <= 0 then
+		-- Item broke
+		table.remove(durs, 1)
+		local toolQty = getSlotQty(player, toolInvSlot)
+		local eqSlot = math.floor(tonumber(player:GetAttribute("HotbarEquippedSlot")) or 0)
+		if toolQty <= 1 then
+			setSlot(player, toolInvSlot, id, 0)
+			-- Unequip from hotbar if this was equipped
+			if eqSlot >= 1 and eqSlot <= HOTBAR_SIZE then
+				local hotbarItemId = tostring(player:GetAttribute(slotAttrName(eqSlot)) or "")
+				if hotbarItemId == id then
+					player:SetAttribute(slotAttrName(eqSlot), nil)
+					player:SetAttribute("HotbarEquippedSlot", nil)
+					local char = player.Character
+					if char then
+						local toolInstance = char:FindFirstChild(id)
+						if toolInstance then toolInstance:Destroy() end
+					end
+					local bp = player:FindFirstChildOfClass("Backpack")
+					if bp then
+						local toolInBp = bp:FindFirstChild(id)
+						if toolInBp then toolInBp:Destroy() end
+					end
+				end
+			end
+		else
+			setSlot(player, toolInvSlot, id, toolQty - 1)
+			setSlotDurabilities(player, toolInvSlot, durs)
+		end
+		refreshWeight(player)
+		harvestNotifyRemote:FireClient(player, "Your " .. toolDef.displayName .. " broke!")
+		EventBridge.fire("tool_broken", player, {
+			itemId = id,
+			itemName = toolDef.displayName,
+		})
+		return false
+	else
+		setSlotDurabilities(player, toolInvSlot, durs)
+		return true
+	end
+end
+
 -- ── Death loot bag (owner-only beacon, countdown timer) ──────────────────
 
 local deathBagBeaconRemote = makeRemote("DeathBagBeacon")
@@ -1322,11 +1401,43 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		end
 	end
 
+	-- DEBUG: snapshot inventory before crafting
+	local maxSlotsDbg = getMaxSlots(player)
+	local beforeSlots = {}
+	for n = 1, maxSlotsDbg do
+		local sid = getSlotItemId(player, n)
+		if sid ~= "" then
+			beforeSlots[n] = sid .. "x" .. tostring(getSlotQty(player, n))
+		end
+	end
+	local beforeHotbar = {}
+	for slot = 1, HOTBAR_SIZE do
+		local pin = tostring(player:GetAttribute(slotAttrName(slot)) or "")
+		if pin ~= "" then beforeHotbar[slot] = pin end
+	end
+
 	-- Safe to craft: remove ingredients then add output
 	for _, ing in ipairs(recipe.ingredients) do
 		removeQty(player, ing.itemId, ing.qty)
 	end
-	addQty(player, recipe.output.itemId, recipe.output.qty)
+	local addOk = addQty(player, recipe.output.itemId, recipe.output.qty)
+
+	-- DEBUG: snapshot inventory after crafting (before orphan cleanup)
+	local afterSlots = {}
+	for n = 1, maxSlotsDbg do
+		local sid = getSlotItemId(player, n)
+		if sid ~= "" then
+			afterSlots[n] = sid .. "x" .. tostring(getSlotQty(player, n))
+		end
+	end
+
+	local HttpService = game:GetService("HttpService")
+	print(string.format("[CRAFT] %s crafted %s | addOk=%s | BEFORE inv=%s hotbar=%s | AFTER inv=%s",
+		player.Name, recipeId, tostring(addOk),
+		HttpService:JSONEncode(beforeSlots),
+		HttpService:JSONEncode(beforeHotbar),
+		HttpService:JSONEncode(afterSlots)
+	))
 
 	local craftDef = ItemRegistry.get(recipe.output.itemId)
 	EventBridge.fire("craft_complete", player, {
@@ -1339,6 +1450,27 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 	})
 
 	cleanOrphanedHotbarPins(player)
+
+	-- DEBUG: snapshot after orphan cleanup
+	local finalSlots = {}
+	for n = 1, maxSlotsDbg do
+		local sid = getSlotItemId(player, n)
+		if sid ~= "" then
+			finalSlots[n] = sid .. "x" .. tostring(getSlotQty(player, n))
+		end
+	end
+	local finalHotbar = {}
+	for slot = 1, HOTBAR_SIZE do
+		local pin = tostring(player:GetAttribute(slotAttrName(slot)) or "")
+		if pin ~= "" then finalHotbar[slot] = pin end
+	end
+	if HttpService:JSONEncode(afterSlots) ~= HttpService:JSONEncode(finalSlots) or
+		HttpService:JSONEncode(beforeHotbar) ~= HttpService:JSONEncode(finalHotbar) then
+		warn(string.format("[CRAFT] ORPHAN CLEANUP CHANGED STATE! final inv=%s final hotbar=%s",
+			HttpService:JSONEncode(finalSlots),
+			HttpService:JSONEncode(finalHotbar)
+		))
+	end
 end)
 
 -- ── PinToHotbar (first free slot) ─────────────────────────────────────────
@@ -1841,6 +1973,58 @@ unequipBackpackRemote.OnServerEvent:Connect(function(player)
 	recalcBackpackCapacity(player)
 
 	-- Add satchel back to inventory (uses pocket slots only now)
+	addQty(player, equipped, 1)
+	refreshWeight(player)
+end)
+
+-- ── Equip / Unequip Quiver ──────────────────────────────────────────────
+
+equipQuiverRemote.OnServerEvent:Connect(function(player, invSlotNum)
+	if type(invSlotNum) ~= "number" then return end
+	invSlotNum = math.floor(invSlotNum)
+	local maxSlots = getMaxSlots(player)
+	if invSlotNum < 1 or invSlotNum > maxSlots then return end
+
+	local itemId = getSlotItemId(player, invSlotNum)
+	if itemId == "" then return end
+
+	local def = ItemRegistry.get(itemId)
+	if not def or not def.equipment or def.equipment.slot ~= "Quiver" then return end
+
+	-- Cannot equip if a quiver is already equipped
+	local current = player:GetAttribute("EquipSlot_Quiver")
+	if type(current) == "string" and current ~= "" then return end
+
+	-- Remove from inventory slot
+	setSlot(player, invSlotNum, "", 0)
+	setSlotExpiries(player, invSlotNum, nil)
+	setSlotDurabilities(player, invSlotNum, nil)
+
+	-- Equip
+	player:SetAttribute("EquipSlot_Quiver", itemId)
+	refreshWeight(player)
+end)
+
+unequipQuiverRemote.OnServerEvent:Connect(function(player)
+	local equipped = player:GetAttribute("EquipSlot_Quiver")
+	if type(equipped) ~= "string" or equipped == "" then return end
+
+	-- Check there's room in inventory for the quiver
+	local hasFreeSlot = false
+	local maxSlots = getMaxSlots(player)
+	for n = 1, maxSlots do
+		if getSlotItemId(player, n) == "" then
+			hasFreeSlot = true
+			break
+		end
+	end
+	if not hasFreeSlot then
+		craftFailedRemote:FireClient(player, "No free inventory slot")
+		return
+	end
+
+	-- Unequip
+	player:SetAttribute("EquipSlot_Quiver", nil)
 	addQty(player, equipped, 1)
 	refreshWeight(player)
 end)

@@ -460,6 +460,7 @@ local function decodeProfile(raw: any): { [string]: any }?
 		uiPositions = if type(raw.uiPositions) == "table" then raw.uiPositions else {},
 		achievements = if type(raw.achievements) == "table" then raw.achievements else nil,
 		equippedBackpack = if type(raw.equippedBackpack) == "string" then raw.equippedBackpack else nil,
+		equippedQuiver = if type(raw.equippedQuiver) == "string" then raw.equippedQuiver else nil,
 	}
 end
 
@@ -896,6 +897,7 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 		survivalSeconds = math.floor(state.survivalSeconds),
 		uiPositions = playerUIPositions[player] or {},
 		equippedBackpack = player:GetAttribute("EquipSlot_Backpack") or nil,
+		equippedQuiver = player:GetAttribute("EquipSlot_Quiver") or nil,
 		achievements = (function()
 			local achSave = bindablesFolder:FindFirstChild("AchievementSave")
 			if achSave and achSave:IsA("BindableFunction") then
@@ -1200,6 +1202,9 @@ local function setupPlayer(player: Player)
 	if profile.equippedBackpack and profile.equippedBackpack ~= "" then
 		player:SetAttribute("EquipSlot_Backpack", profile.equippedBackpack)
 	end
+	if profile.equippedQuiver and profile.equippedQuiver ~= "" then
+		player:SetAttribute("EquipSlot_Quiver", profile.equippedQuiver)
+	end
 
 	player:SetAttribute("MaxEnergy", Config.Energy.Max)
 	player:SetAttribute("Energy", round1(state.energy))
@@ -1251,10 +1256,20 @@ local function setupPlayer(player: Player)
 	writeInventoryAttributes(player, decodeInventory(profile.inventory))
 
 	-- Restore slot-based inventory from saved profile.
+	-- Calculate actual max slots (pockets + backpack) so we don't drop saved items
+	local loadMaxSlots = pocketSlots
+	if profile.equippedBackpack and profile.equippedBackpack ~= "" then
+		local bpDef = ItemRegistry.get(profile.equippedBackpack)
+		if bpDef and bpDef.backpack and bpDef.backpack.slots then
+			loadMaxSlots = pocketSlots + bpDef.backpack.slots
+		end
+	end
+	player:SetAttribute("MaxInvSlots", loadMaxSlots)
+
 	local isUpgradeToV5 = (tonumber(profile.version) or 0) < 5
 	if type(profile.invSlots) == "table" then
 		for n, entry in ipairs(profile.invSlots) do
-			if n > pocketSlots then break end
+			if n > loadMaxSlots then break end
 			if type(entry.itemId) == "string" and entry.itemId ~= "" and type(entry.qty) == "number" then
 				local qty = math.floor(entry.qty + 0.5)
 				player:SetAttribute("InvSlot_" .. n, entry.itemId)

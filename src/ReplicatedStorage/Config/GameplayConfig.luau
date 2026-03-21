@@ -142,6 +142,47 @@ return {
 		RockSpawnRadius   = 10,       -- studs: how far rocks spread around boulders
 	},
 
+	Combat = {
+		PvPEnabled = true,
+		HitRegistrationMaxLatency = 0.2,  -- seconds: max tolerated lag for hit validation
+		MeleeWeapons = {
+			spear = { damage = 10, cooldown = 0.8, range = 8, knockback = 5 },
+		},
+		Bow = {
+			DrawTimeMin = 0.3,       -- minimum hold before release fires
+			DrawTimeMax = 1.5,       -- full draw = max damage
+			MinDamageRatio = 0.4,    -- quick shot = 40% of base damage
+			ArrowSpeed = 200,        -- studs/second at full draw
+			ArrowGravity = 20,       -- studs/s² downward
+			ArrowLifetime = 300,     -- 5 minutes before stuck arrows despawn
+			BaseDrawCycle = 2.5,     -- seconds between shots (no quiver)
+			AimWalkSpeed = 8,        -- walk speed while aiming
+			AimFOV = 60,             -- camera FOV while aiming (normal ~70)
+			AimShoulderOffset = Vector3.new(2, 0.5, 0),
+		},
+	},
+
+	Animal = {
+		DeerHealth = 15,
+		DeerWalkSpeed = 8,
+		DeerFleeSpeed = 32,
+		DeerFleeRadius = 55,       -- studs: player proximity triggers flee (bow barely reaches)
+		DeerFleeDuration = { 5, 8 }, -- seconds (min, max)
+		DeerIdleDuration = { 3, 8 },
+		DeerWanderRadius = 20,     -- studs from spawn point
+		DeerRespawnSeconds = { 180, 300 }, -- 3-5 min
+		MaxDeerPerZone = 6,
+		CarcassDespawnSeconds = 300,  -- 5 min
+	},
+
+	Butcher = {
+		SkinChannelSeconds = 3,
+		ButcherChannelSeconds = 4,
+		SkinDurabilityCost = 2,
+		ButcherDurabilityCost = 2,
+		InteractRange = 6,
+	},
+
 	EventBridge = {
 		Enabled = true,
 		EnableInStudio = false,

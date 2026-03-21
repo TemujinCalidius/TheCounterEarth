@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.22.0] - Combat, bow & arrows, hunting, and butchering
+
+### Added
+- **Combat system** — new `CombatService` handles weapon-only melee attacks; harvest tools (knife, axe) cannot deal PvP damage, preventing accidental harvesting during combat
+- **Stone Spear** — first dedicated melee weapon (2 twig + 1 rock); 10 damage, 0.8s cooldown, 8-stud range, 25 durability
+- **Primitive Bow** — ranged weapon (2 twig + 3 reed); 15 base damage, draw-time scaling (quick shot = 40%, full draw = 100%), 60 durability
+- **Stone Arrows** — craftable ammo (1 twig + 1 rock → 5 arrows); stick in targets/terrain, recoverable via ProximityPrompt, 5-minute despawn
+- **Bow aiming** — hold right-click for over-the-shoulder camera, crosshair with power ring, FOV zoom; mobile: AIM + FIRE buttons
+- **Draw scaling** — bow damage and arrow speed scale with draw time (0.3s min → 1.5s full draw)
+- **Reed Quiver** — equipment slot (5 reed); reduces bow draw cycle from 2.5s to 1.0s when equipped
+- **Quiver equipment slot** — new slot in CHARACTER tab (replaces unused Off Hand), equip/unequip UI mirrors backpack
+- **Deer NPC** — AI state machine (idle → wander → flee → dead); 30 HP, flees on player proximity or damage, spawns in AnimalZones
+- **Carcass & Butchering** — two-step ProximityPrompt flow: Skin (3s, yields crude_hide) → Butcher (4s, yields raw_venison, bone, chance of sinew); requires knife equipped
+- **Venison cooking** — raw_venison cooks at campfire in 15s → cooked_venison (hunger: 40, health: 5)
+- **New items** — stone_spear, primitive_bow, stone_arrow, reed_quiver, raw_venison, cooked_venison, crude_hide, bone, sinew
+- **New crafting recipes** — stone spear, primitive bow, stone arrows (batch ×5), reed quiver
+- **Hunting achievements** — First Blood, Hunter, Apex Predator, Skinning 101, Master Butcher, Marksman, Sharpshooter, Quiver Full of Stories, Stick 'Em, Phalanx (10 new)
+- **Placeholder models** — Part-based spear, bow, and deer models for testing until Studio meshes are ready
+- **DurabilityDeduct BindableFunction** — reusable cross-service durability deduction (used by CombatService, BowService, ButcherService)
+
+### Changed
+- **Weapon/tool separation** — new `"weapon"` category and `WeaponInfo` type in ItemRegistry; `"tool"` category reserved for harvest tools only
+- **Stone knife** — removed legacy `damage` field and `"weapon"` tag; knife is now purely a harvest/butchering tool
+- **Click routing** — HudController routes left-clicks to CombatService for weapons, harvest system for tools; no cross-contamination
+- **Achievement count** — increased from 53 to 63 achievements across 21 categories (was 17)
+
+---
+
 ## [0.21.0] - Achievement fix, inventory weights, loading screen polish
 
 ### Fixed

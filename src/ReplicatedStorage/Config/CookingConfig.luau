@@ -16,5 +16,12 @@ return {
 			skillLevel  = 1,
 			displayName = "Cooked Mushroom",
 		},
+		raw_venison = {
+			output      = "cooked_venison",
+			cookSeconds = 15,
+			station     = "campfire",
+			skillLevel  = 1,
+			displayName = "Cooked Venison",
+		},
 	},
 }

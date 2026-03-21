@@ -67,6 +67,8 @@ local craftFailedRemote      = remotes:WaitForChild("CraftFailed")       :: Remo
 local saveUIPosRemote        = remotes:WaitForChild("SaveUIPosition")    :: RemoteEvent
 local equipBackpackRemote    = remotes:WaitForChild("EquipBackpack")     :: RemoteEvent
 local unequipBackpackRemote  = remotes:WaitForChild("UnequipBackpack")   :: RemoteEvent
+local equipQuiverRemote      = remotes:WaitForChild("EquipQuiver")       :: RemoteEvent
+local unequipQuiverRemote    = remotes:WaitForChild("UnequipQuiver")     :: RemoteEvent
 local achieveSyncRemote      = remotes:WaitForChild("AchievementSync", 10)
 local achieveRequestRemote   = remotes:WaitForChild("AchievementRequest", 10)
 local achieveUnlockedRemote  = remotes:WaitForChild("AchievementUnlocked", 10)
@@ -1216,7 +1218,7 @@ local SLOT_PAIRS = {
 	{ "Chest",      "Chest",      "Belt",     "Belt"      },
 	{ "Legs",       "Legs",       "Feet",     "Feet"      },
 	{ "RingL",      "Ring (L)",   "RingR",    "Ring (R)"  },
-	{ "MainHand",   "Main Hand",  "OffHand",  "Off Hand"  },
+	{ "MainHand",   "Main Hand",  "Quiver",   "Quiver"    },
 	{ "CoinPouch",  "Coin Pouch", "Backpack", "Backpack"  },
 }
 
@@ -1273,6 +1275,24 @@ do
 			local equipped = player:GetAttribute("EquipSlot_Backpack") or ""
 			if equipped ~= "" then
 				unequipBackpackRemote:FireServer()
+			end
+		end)
+	end
+end
+
+-- Click Quiver slot to unequip
+do
+	local qRef = slotRefs["Quiver"]
+	if qRef and qRef.box then
+		local btn = Instance.new("TextButton")
+		btn.Size                    = UDim2.new(1, 0, 1, 0)
+		btn.BackgroundTransparency  = 1
+		btn.Text                    = ""
+		btn.Parent                  = qRef.box
+		btn.Activated:Connect(function()
+			local equipped = player:GetAttribute("EquipSlot_Quiver") or ""
+			if equipped ~= "" then
+				unequipQuiverRemote:FireServer()
 			end
 		end)
 	end
@@ -2115,11 +2135,15 @@ local function selectSlot(n: number)
 	local isPlaceable       = def.category == "placeable"
 	local isTool            = def.category == "tool" or def.category == "weapon"
 	local isBackpack        = def.backpack ~= nil
+	local isQuiver          = def.equipment ~= nil and def.equipment.slot == "Quiver"
+	local isEquippable      = isBackpack or isQuiver
 	local hasEquippedBP     = (player:GetAttribute("EquipSlot_Backpack") or "") ~= ""
+	local hasEquippedQuiver = (player:GetAttribute("EquipSlot_Quiver") or "") ~= ""
 	detailUseBtn.Visible    = isConsumable or isPlaceable
 	detailUseBtn.Text       = isPlaceable and "PLACE" or "USE"
-	detailEquipBtn.Visible  = isBackpack
-	if isBackpack and hasEquippedBP then
+	detailEquipBtn.Visible  = isEquippable
+	local alreadyEquipped = (isBackpack and hasEquippedBP) or (isQuiver and hasEquippedQuiver)
+	if alreadyEquipped then
 		detailEquipBtn.Text             = "EQUIPPED"
 		detailEquipBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 		detailEquipBtn.TextColor3       = MUTED
@@ -2158,10 +2182,20 @@ end)
 
 detailEquipBtn.Activated:Connect(function()
 	if selectedSlot == 0 then return end
-	-- Don't equip if one is already equipped
-	local current = player:GetAttribute("EquipSlot_Backpack") or ""
-	if current ~= "" then return end
-	equipBackpackRemote:FireServer(selectedSlot)
+	local itemId = getSlotItemId(selectedSlot)
+	if itemId == "" then return end
+	local def = ItemRegistry.get(itemId)
+	if not def then return end
+
+	if def.backpack then
+		local current = player:GetAttribute("EquipSlot_Backpack") or ""
+		if current ~= "" then return end
+		equipBackpackRemote:FireServer(selectedSlot)
+	elseif def.equipment and def.equipment.slot == "Quiver" then
+		local current = player:GetAttribute("EquipSlot_Quiver") or ""
+		if current ~= "" then return end
+		equipQuiverRemote:FireServer(selectedSlot)
+	end
 	selectSlot(0)
 end)
 
