@@ -376,6 +376,95 @@ local function addQty(player: Player, itemId: string, amount: number): boolean
 	return remaining == 0
 end
 
+-- Like addQty but restores specific durability/expiry values instead of creating fresh ones.
+-- Used when picking up items from loot bags to preserve their state.
+local function addQtyWithMeta(player: Player, itemId: string, amount: number, durabilities: { number }?, expiries: { number }?): boolean
+	-- If no metadata provided, fall back to normal addQty
+	if (not durabilities or #durabilities == 0) and (not expiries or #expiries == 0) then
+		return addQty(player, itemId, amount)
+	end
+
+	local def = ItemRegistry.get(itemId)
+	if not def then return false end
+
+	local maxWeight = tonumber(player:GetAttribute("MaxCarryWeight")) or BASE_MAX_WEIGHT
+	if computeWeight(player) + def.weight * amount > maxWeight + 0.001 then
+		return false
+	end
+
+	local maxSlots  = getMaxSlots(player)
+	local remaining = amount
+	local durIdx = 1  -- index into durabilities array
+	local expIdx = 1  -- index into expiries array
+
+	-- Fill partial stacks first
+	for n = 1, maxSlots do
+		if remaining <= 0 then break end
+		if getSlotItemId(player, n) == itemId then
+			local qty    = getSlotQty(player, n)
+			local canAdd = math.min(remaining, def.stackMax - qty)
+			if canAdd > 0 then
+				setSlot(player, n, itemId, qty + canAdd)
+				if expiries and #expiries > 0 then
+					local slotExp = getSlotExpiries(player, n)
+					for _ = 1, canAdd do
+						if expIdx <= #expiries then
+							table.insert(slotExp, expiries[expIdx])
+							expIdx += 1
+						end
+					end
+					table.sort(slotExp)
+					setSlotExpiries(player, n, slotExp)
+				end
+				if durabilities and #durabilities > 0 then
+					local slotDur = getSlotDurabilities(player, n)
+					for _ = 1, canAdd do
+						if durIdx <= #durabilities then
+							table.insert(slotDur, durabilities[durIdx])
+							durIdx += 1
+						end
+					end
+					setSlotDurabilities(player, n, slotDur)
+				end
+				remaining -= canAdd
+			end
+		end
+	end
+
+	-- Fill empty slots
+	for n = 1, maxSlots do
+		if remaining <= 0 then break end
+		if getSlotItemId(player, n) == "" then
+			local take = math.min(remaining, def.stackMax)
+			setSlot(player, n, itemId, take)
+			if expiries and #expiries > 0 then
+				local slotExp = {}
+				for _ = 1, take do
+					if expIdx <= #expiries then
+						table.insert(slotExp, expiries[expIdx])
+						expIdx += 1
+					end
+				end
+				setSlotExpiries(player, n, slotExp)
+			end
+			if durabilities and #durabilities > 0 then
+				local slotDur = {}
+				for _ = 1, take do
+					if durIdx <= #durabilities then
+						table.insert(slotDur, durabilities[durIdx])
+						durIdx += 1
+					end
+				end
+				setSlotDurabilities(player, n, slotDur)
+			end
+			remaining -= take
+		end
+	end
+
+	refreshWeight(player)
+	return remaining == 0
+end
+
 local function removeQty(player: Player, itemId: string, amount: number): boolean
 	if getTotalQty(player, itemId) < amount then return false end
 
@@ -526,6 +615,30 @@ local function spawnToolInBackpack(player: Player, itemId: string)
 	tool.Parent = backpack
 end
 
+-- Auto-pin a newly acquired item to the first free hotbar slot (if eligible).
+-- Called after pickup, craft, or loot bag take. Only for tools/weapons/placeables/consumables.
+local function tryAutoHotbar(player: Player, itemId: string)
+	local def = ItemRegistry.get(itemId)
+	if not def then return end
+	-- Only auto-assign hotbar-eligible items
+	if def.category ~= "tool" and def.category ~= "weapon"
+		and def.category ~= "placeable" and not def.onConsume then
+		return
+	end
+	-- Check if already pinned to any hotbar slot
+	for slot = 1, HOTBAR_SIZE do
+		if player:GetAttribute(slotAttrName(slot)) == itemId then
+			return
+		end
+	end
+	-- Find first free slot
+	local freeSlot = findFreeHotbarSlot(player)
+	if not freeSlot then return end
+	-- Pin it and spawn tool in backpack
+	player:SetAttribute(slotAttrName(freeSlot), itemId)
+	spawnToolInBackpack(player, itemId)
+end
+
 local function clearHotbarSlot(player: Player, slot: number)
 	local itemId = tostring(player:GetAttribute(slotAttrName(slot)) or "")
 	player:SetAttribute(slotAttrName(slot), nil)
@@ -581,7 +694,41 @@ local function findNearbyLootBag(position: Vector3, excludeDeathBags: boolean): 
 	return nil
 end
 
-local function createLootBag(player: Player, items: { { itemId: string, qty: number } })
+-- Helper: encode a number array as a comma-separated string
+local function encodeNumberList(list: { number }): string
+	local parts = {}
+	for _, n in ipairs(list) do
+		table.insert(parts, tostring(math.floor(n)))
+	end
+	return table.concat(parts, ",")
+end
+
+-- Helper: decode a comma-separated string back to number array
+local function decodeNumberList(str: string?): { number }
+	if type(str) ~= "string" or str == "" then return {} end
+	local result = {}
+	for tok in string.gmatch(str, "[^,]+") do
+		local num = tonumber(tok)
+		if num then table.insert(result, num) end
+	end
+	return result
+end
+
+-- Helper: store durability/expiry metadata on a bag for a given item
+local function storeBagMeta(bag: Model, itemId: string, durabilities: { number }?, expiries: { number }?)
+	if durabilities and #durabilities > 0 then
+		local existing = decodeNumberList(bag:GetAttribute("_Dur_" .. itemId))
+		for _, d in ipairs(durabilities) do table.insert(existing, d) end
+		bag:SetAttribute("_Dur_" .. itemId, encodeNumberList(existing))
+	end
+	if expiries and #expiries > 0 then
+		local existing = decodeNumberList(bag:GetAttribute("_Exp_" .. itemId))
+		for _, e in ipairs(expiries) do table.insert(existing, e) end
+		bag:SetAttribute("_Exp_" .. itemId, encodeNumberList(existing))
+	end
+end
+
+local function createLootBag(player: Player, items: { { itemId: string, qty: number, durabilities: { number }?, expiries: { number }? } })
 	local character = player.Character
 	local rootPart  = character and character:FindFirstChild("HumanoidRootPart")
 	local origin    = rootPart and rootPart.CFrame or CFrame.new(0, 5, 0)
@@ -601,6 +748,7 @@ local function createLootBag(player: Player, items: { { itemId: string, qty: num
 				v.Value  = entry.qty
 				v.Parent = existing
 			end
+			storeBagMeta(existing, entry.itemId, entry.durabilities, entry.expiries)
 		end
 		-- Update any viewers currently looking at this bag
 		broadcastBagState(existing)
@@ -644,6 +792,7 @@ local function createLootBag(player: Player, items: { { itemId: string, qty: num
 		v.Name   = entry.itemId
 		v.Value  = entry.qty
 		v.Parent = bag
+		storeBagMeta(bag, entry.itemId, entry.durabilities, entry.expiries)
 	end
 
 	local prompt = Instance.new("ProximityPrompt")
@@ -1016,9 +1165,12 @@ local function setupScatterItem(model: Model)
 	prompt.RequiresLineOfSight   = false
 	prompt.ActionText = "Pick Up"
 
-	prompt.Triggered:Connect(function(player)
+	prompt.Triggered:Connect(function(triggerPlayer)
 		if not model or not model.Parent then return end
-		if addQty(player, itemId, 1) then model:Destroy() end
+		if addQty(triggerPlayer, itemId, 1) then
+			tryAutoHotbar(triggerPlayer, itemId)
+			model:Destroy()
+		end
 	end)
 end
 
@@ -1045,7 +1197,9 @@ invAddFunc.Parent = invBindables
 invAddFunc.OnInvoke = function(player: Player, itemId: string, qty: number): boolean
 	local id = sanitizeItemId(itemId)
 	if id == "" or qty < 1 then return false end
-	return addQty(player, id, qty)
+	local ok = addQty(player, id, qty)
+	if ok then tryAutoHotbar(player, id) end
+	return ok
 end
 
 local invRemoveFunc = Instance.new("BindableFunction")
@@ -1231,16 +1385,19 @@ invDumpAllFunc.Name = "InventoryDumpAll"
 invDumpAllFunc.Parent = invBindables
 invDumpAllFunc.OnInvoke = function(player: Player, deathCFrame: CFrame)
 	local maxSlots = getMaxSlots(player)
-	local items: { { itemId: string, qty: number } } = {}
+	local items = {}
 
-	-- Collect all inventory contents
+	-- Collect all inventory contents (including durability/expiry metadata)
 	for n = 1, maxSlots do
 		local itemId = getSlotItemId(player, n)
 		local qty    = getSlotQty(player, n)
 		if itemId ~= "" and qty > 0 then
-			table.insert(items, { itemId = itemId, qty = qty })
+			local durs = getSlotDurabilities(player, n)
+			local expiries = getSlotExpiries(player, n)
+			table.insert(items, { itemId = itemId, qty = qty, durabilities = durs, expiries = expiries })
 			setSlot(player, n, "", 0)
 			setSlotExpiries(player, n, nil)
+			setSlotDurabilities(player, n, nil)
 		end
 	end
 
@@ -1421,6 +1578,9 @@ craftItemRemote.OnServerEvent:Connect(function(player, rawRecipeId)
 		removeQty(player, ing.itemId, ing.qty)
 	end
 	local addOk = addQty(player, recipe.output.itemId, recipe.output.qty)
+	if addOk then
+		tryAutoHotbar(player, recipe.output.itemId)
+	end
 
 	-- DEBUG: snapshot inventory after crafting (before orphan cleanup)
 	local afterSlots = {}
@@ -1700,10 +1860,30 @@ dropItemRemote.OnServerEvent:Connect(function(player, rawSlot, rawQty)
 	local slotQty = getSlotQty(player, slot)
 	local qty     = math.min(math.max(1, math.floor(tonumber(rawQty) or slotQty)), slotQty)
 
+	-- Extract durability/expiry metadata BEFORE removing from slot
+	local allDurs = getSlotDurabilities(player, slot)
+	local allExpiries = getSlotExpiries(player, slot)
+	local dropDurs: { number } = {}
+	local dropExpiries: { number } = {}
+	for i = 1, qty do
+		if i <= #allDurs then table.insert(dropDurs, allDurs[i]) end
+		if i <= #allExpiries then table.insert(dropExpiries, allExpiries[i]) end
+	end
+
+	-- Keep remaining metadata on the slot
+	local remainingDurs: { number } = {}
+	for i = qty + 1, #allDurs do table.insert(remainingDurs, allDurs[i]) end
+	local remainingExpiries: { number } = {}
+	for i = qty + 1, #allExpiries do table.insert(remainingExpiries, allExpiries[i]) end
+
 	setSlot(player, slot, itemId, slotQty - qty)
+	if slotQty - qty > 0 then
+		setSlotDurabilities(player, slot, remainingDurs)
+		setSlotExpiries(player, slot, remainingExpiries)
+	end
 	refreshWeight(player)
 	cleanOrphanedHotbarPins(player)
-	createLootBag(player, { { itemId = itemId, qty = qty } })
+	createLootBag(player, { { itemId = itemId, qty = qty, durabilities = dropDurs, expiries = dropExpiries } })
 
 	local dropDef = ItemRegistry.get(itemId)
 	EventBridge.fire("item_dropped", player, {
@@ -2152,13 +2332,70 @@ takeLootBagItemRemote.OnServerEvent:Connect(function(player, bag, rawItemId, raw
 	local take = math.min(qty, available)
 	if take < 1 then return end
 
-	if not addQty(player, itemId, take) then return end
+	-- Extract stored durability/expiry metadata from bag
+	local bagDurs = decodeNumberList(bag:GetAttribute("_Dur_" .. itemId))
+	local bagExpiries = decodeNumberList(bag:GetAttribute("_Exp_" .. itemId))
 
+	-- Take the first `take` entries from the metadata arrays
+	local takeDurs: { number } = {}
+	for i = 1, math.min(take, #bagDurs) do table.insert(takeDurs, bagDurs[i]) end
+	local takeExpiries: { number } = {}
+	for i = 1, math.min(take, #bagExpiries) do table.insert(takeExpiries, bagExpiries[i]) end
+
+	-- Check for spoiled items: any expired timestamps become spoiled_food
+	local now = os.time()
+	local validExpiries: { number } = {}
+	local spoiledCount = 0
+	local validItemCount = take
+	if #takeExpiries > 0 then
+		for _, ts in ipairs(takeExpiries) do
+			if ts <= now then
+				spoiledCount += 1
+			else
+				table.insert(validExpiries, ts)
+			end
+		end
+		validItemCount = take - spoiledCount
+	end
+
+	-- Add non-spoiled items with their preserved metadata
+	local added = true
+	if validItemCount > 0 then
+		local validDurs: { number } = {}
+		-- Durabilities correspond to non-spoiled items (trim spoiled from front)
+		for i = spoiledCount + 1, math.min(take, #takeDurs) do
+			table.insert(validDurs, takeDurs[i])
+		end
+		added = addQtyWithMeta(player, itemId, validItemCount,
+			#validDurs > 0 and validDurs or nil,
+			#validExpiries > 0 and validExpiries or nil)
+	end
+
+	-- Add spoiled_food for expired items
+	if spoiledCount > 0 and added then
+		addQty(player, "spoiled_food", spoiledCount)
+	end
+
+	if not added then return end
+
+	-- Auto-pin to hotbar if eligible
+	tryAutoHotbar(player, itemId)
+
+	-- Update bag: remove taken items and trim metadata
 	local remaining = available - take
 	if remaining <= 0 then
 		child:Destroy()
+		bag:SetAttribute("_Dur_" .. itemId, nil)
+		bag:SetAttribute("_Exp_" .. itemId, nil)
 	else
 		child.Value = remaining
+		-- Keep remaining metadata (entries after the ones we took)
+		local remDurs: { number } = {}
+		for i = take + 1, #bagDurs do table.insert(remDurs, bagDurs[i]) end
+		bag:SetAttribute("_Dur_" .. itemId, #remDurs > 0 and encodeNumberList(remDurs) or nil)
+		local remExp: { number } = {}
+		for i = take + 1, #bagExpiries do table.insert(remExp, bagExpiries[i]) end
+		bag:SetAttribute("_Exp_" .. itemId, #remExp > 0 and encodeNumberList(remExp) or nil)
 	end
 
 	-- Check if bag is empty

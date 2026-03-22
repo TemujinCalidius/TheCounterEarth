@@ -39,7 +39,7 @@ butcherNotifyRemote.Parent = remotesFolder
 local YIELDS = {
 	deer = {
 		skin = {
-			{ itemId = "crude_hide", qty = 1, chance = 1.0 },
+			{ itemId = "raw_crude_hide", qty = 1, chance = 1.0 },
 		},
 		butcher = {
 			{ itemId = "raw_venison", qtyMin = 2, qtyMax = 3, chance = 1.0 },
@@ -118,7 +118,7 @@ local function setupCarcassPrompts(carcass: Model)
 		-- Check knife equipped
 		local knifeId = getEquippedKnifeId(triggerPlayer)
 		if not knifeId then
-			butcherNotifyRemote:FireClient(triggerPlayer, "You need a knife equipped to do this")
+			butcherNotifyRemote:FireClient(triggerPlayer, "error", carcass, "Equip a knife first")
 			return
 		end
 
@@ -138,14 +138,14 @@ local function setupCarcassPrompts(carcass: Model)
 			-- Give skin yields (quality based on knife tier)
 			local given = giveYields(triggerPlayer, yields.skin)
 			carcass:SetAttribute("_Skinned", true)
+			carcass:SetAttribute("_SpawnTime", os.time())  -- reset despawn timer
 
 			-- Update prompt for butcher step
 			prompt.ActionText = "Butcher"
 			prompt.HoldDuration = BUTCHER_CHANNEL
 
-			-- Notify player
-			local msg = "Skinned: " .. table.concat(given, ", ")
-			butcherNotifyRemote:FireClient(triggerPlayer, msg)
+			-- Notify player with structured yield data
+			butcherNotifyRemote:FireClient(triggerPlayer, "yield", carcass, given)
 
 			EventBridge.fire("animal_skinned", triggerPlayer, {
 				animalType = animalType,
@@ -162,7 +162,7 @@ local function setupCarcassPrompts(carcass: Model)
 			-- Re-check knife (might have broken during skinning)
 			knifeId = getEquippedKnifeId(triggerPlayer)
 			if not knifeId then
-				butcherNotifyRemote:FireClient(triggerPlayer, "You need a knife equipped to do this")
+				butcherNotifyRemote:FireClient(triggerPlayer, "error", carcass, "Equip a knife first")
 				activeChannels[triggerPlayer] = nil
 				return
 			end
@@ -173,6 +173,7 @@ local function setupCarcassPrompts(carcass: Model)
 			-- Give butcher yields
 			local given = giveYields(triggerPlayer, yields.butcher)
 			carcass:SetAttribute("_Butchered", true)
+			carcass:SetAttribute("_SpawnTime", os.time())  -- reset despawn timer for remains
 
 			-- Remove prompt and update billboard
 			prompt:Destroy()
@@ -186,9 +187,8 @@ local function setupCarcassPrompts(carcass: Model)
 				end
 			end
 
-			-- Notify player
-			local msg = "Butchered: " .. table.concat(given, ", ")
-			butcherNotifyRemote:FireClient(triggerPlayer, msg)
+			-- Notify player with structured yield data
+			butcherNotifyRemote:FireClient(triggerPlayer, "yield", carcass, given)
 
 			EventBridge.fire("butcher_complete", triggerPlayer, {
 				animalType = animalType,
@@ -196,11 +196,6 @@ local function setupCarcassPrompts(carcass: Model)
 			})
 
 			activeChannels[triggerPlayer] = nil
-
-			-- Destroy carcass after a few seconds
-			task.delay(5, function()
-				if carcass.Parent then carcass:Destroy() end
-			end)
 		end
 	end)
 end

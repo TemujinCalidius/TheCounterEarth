@@ -484,7 +484,7 @@ Items.stone_spear = {
 	},
 	tags = { "weapon", "spear", "tier0", "primitive" },
 	gripCFrame = CFrame.new(0, -1.2, 0) * CFrame.Angles(math.rad(0), 0, math.rad(-90)),
-	icon = "",
+	icon = "rbxassetid://131454060699676",
 }
 
 Items.primitive_bow = {
@@ -505,7 +505,7 @@ Items.primitive_bow = {
 		ammoItemId = "stone_arrow",
 	},
 	tags = { "weapon", "bow", "tier0", "primitive" },
-	icon = "",
+	icon = "rbxassetid://121596783349256",
 }
 
 -- ---------------------------------------------------------------------------
@@ -521,7 +521,7 @@ Items.stone_arrow = {
 	slotSize = { w = 1, h = 1 },
 	category = "ammo",
 	tags = { "ammo", "arrow", "tier0" },
-	icon = "",
+	icon = "rbxassetid://133378114479940",
 }
 
 -- ---------------------------------------------------------------------------
@@ -541,7 +541,7 @@ Items.reed_quiver = {
 		drawSpeedMultiplier = 0.4,
 	},
 	tags = { "equipment", "quiver", "tier0" },
-	icon = "",
+	icon = "rbxassetid://93485144736423",
 }
 
 -- ---------------------------------------------------------------------------
@@ -559,7 +559,7 @@ Items.raw_venison = {
 	perishSeconds = 1800,
 	onConsume = { hunger = 15, poison = 20 },
 	tags = { "food", "raw", "meat" },
-	icon = "",
+	icon = "rbxassetid://116187218779694",
 }
 
 Items.cooked_venison = {
@@ -573,19 +573,19 @@ Items.cooked_venison = {
 	perishSeconds = 3600,
 	onConsume = { hunger = 40, health = 5 },
 	tags = { "food", "cooked", "meat" },
-	icon = "",
+	icon = "rbxassetid://105779165409031",
 }
 
-Items.crude_hide = {
-	id = "crude_hide",
-	displayName = "Crude Hide",
-	description = "Roughly skinned animal hide. Needs tanning.",
+Items.raw_crude_hide = {
+	id = "raw_crude_hide",
+	displayName = "Raw Crude Hide",
+	description = "Roughly skinned animal hide. Dry it on a rack to make crude leather.",
 	stackMax = 10,
 	weight = 0.3,
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "hide", "tier0" },
-	icon = "",
+	icon = "rbxassetid://107005747439288",
 }
 
 Items.bone = {
@@ -597,7 +597,7 @@ Items.bone = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "bone", "alchemy" },
-	icon = "",
+	icon = "rbxassetid://97098993686201",
 }
 
 Items.sinew = {
@@ -609,7 +609,7 @@ Items.sinew = {
 	slotSize = { w = 1, h = 1 },
 	category = "material",
 	tags = { "material", "sinew", "binding" },
-	icon = "",
+	icon = "rbxassetid://140168506179991",
 }
 
 -- ---------------------------------------------------------------------------

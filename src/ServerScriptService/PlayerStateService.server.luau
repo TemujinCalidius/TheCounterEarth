@@ -204,6 +204,7 @@ local ITEM_RENAMES: { [string]: string } = {
 	cooked_fish   = "spoiled_food",
 	raw_meat      = "spoiled_food",
 	cooked_meat   = "spoiled_food",
+	crude_hide    = "raw_crude_hide",
 }
 
 local function migrateItemId(id: string): string

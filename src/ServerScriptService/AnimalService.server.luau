@@ -266,8 +266,16 @@ local function spawnCarcass(position: Vector3, killerPlayer: Player?)
 
 	carcass.Parent = Workspace
 
-	task.delay(CARCASS_DESPAWN, function()
-		if carcass.Parent then carcass:Destroy() end
+	-- Polling despawn: checks _SpawnTime so ButcherService can reset the timer
+	task.spawn(function()
+		while carcass.Parent do
+			task.wait(10)
+			local spawnTime = carcass:GetAttribute("_SpawnTime") or 0
+			if os.time() - spawnTime >= CARCASS_DESPAWN then
+				carcass:Destroy()
+				return
+			end
+		end
 	end)
 
 	return carcass

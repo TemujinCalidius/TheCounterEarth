@@ -1057,9 +1057,8 @@ local function startCraft(recipeId: string)
 	craftRecipeId = recipeId
 	craftBarLabel.TextColor3 = TEXT
 
-	-- Close inventory directly (bypass setOpen to avoid cancelCraft)
-	isOpen = false
-	panel.Visible = false
+	-- Close inventory panel while crafting (setOpen no longer cancels craft)
+	setOpen(false)
 
 	-- Show progress bar in HUD (reparent to GameplayHud so it's visible with inventory closed)
 	local hudGui = player.PlayerGui:FindFirstChild("GameplayHud")
@@ -2597,8 +2596,6 @@ setOpen = function(open: boolean)
 	if open then
 		clampPanelPosition()
 		refreshAll()
-	else
-		cancelCraft()
 	end
 end
 

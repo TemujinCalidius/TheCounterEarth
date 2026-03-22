@@ -53,6 +53,7 @@ type AchievementState = {
 }
 
 local playerStates: { [Player]: AchievementState } = {}
+local playerLoaded: { [Player]: boolean } = {}  -- gates notifications until load complete
 
 -- ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ local function getMostRecentAchievement(state: AchievementState): string?
 	return bestKey
 end
 
-local function checkAndUnlock(player: Player, state: AchievementState, counterName: string)
+local function checkAndUnlock(player: Player, state: AchievementState, counterName: string, suppressNotify: boolean?)
 	local achievements = AchievementConfig.ByCounter[counterName]
 	if not achievements then return end
 
@@ -90,39 +91,41 @@ local function checkAndUnlock(player: Player, state: AchievementState, counterNa
 			-- Unlock!
 			state.unlocked[ach.key] = os.time()
 
-			-- Notify client (toast)
-			achieveUnlockedRemote:FireClient(player, {
-				key      = ach.key,
-				name     = ach.name,
-				icon     = ach.icon,
-				category = ach.category,
-			})
+			if not suppressNotify then
+				-- Notify client (toast)
+				achieveUnlockedRemote:FireClient(player, {
+					key      = ach.key,
+					name     = ach.name,
+					icon     = ach.icon,
+					category = ach.category,
+				})
 
-			-- Notify web/Discord
-			EventBridge.fire("achievement_unlocked", player, {
-				key               = ach.key,
-				name              = ach.name,
-				icon              = ach.icon,
-				category          = ach.category,
-				counterValue      = currentValue,
-				totalUnlocked     = getUnlockedCount(state),
-				totalAchievements = AchievementConfig.TotalCount,
-			})
+				-- Notify web/Discord
+				EventBridge.fire("achievement_unlocked", player, {
+					key               = ach.key,
+					name              = ach.name,
+					icon              = ach.icon,
+					category          = ach.category,
+					counterValue      = currentValue,
+					totalUnlocked     = getUnlockedCount(state),
+					totalAchievements = AchievementConfig.TotalCount,
+				})
+			end
 		end
 	end
 end
 
-local function incrementCounter(player: Player, state: AchievementState, counterName: string, amount: number?)
+local function incrementCounter(player: Player, state: AchievementState, counterName: string, amount: number?, suppressNotify: boolean?)
 	local prev = state.counters[counterName] or 0
 	state.counters[counterName] = prev + (amount or 1)
-	checkAndUnlock(player, state, counterName)
+	checkAndUnlock(player, state, counterName, suppressNotify)
 end
 
-local function setCounterMax(player: Player, state: AchievementState, counterName: string, value: number)
+local function setCounterMax(player: Player, state: AchievementState, counterName: string, value: number, suppressNotify: boolean?)
 	local prev = state.counters[counterName] or 0
 	if value > prev then
 		state.counters[counterName] = value
-		checkAndUnlock(player, state, counterName)
+		checkAndUnlock(player, state, counterName, suppressNotify)
 	end
 end
 
@@ -152,6 +155,7 @@ EventBridge.onFire(function(eventType: string, player: Player?, data: { [string]
 
 		local state = playerStates[targetPlayer]
 		if not state then continue end
+		if not playerLoaded[targetPlayer] then continue end
 
 		-- Determine value
 		local value = 1
@@ -170,7 +174,7 @@ end)
 
 -- ── Login streak logic ──────────────────────────────────────────────────
 
-local function updateLoginStreak(player: Player, state: AchievementState)
+local function updateLoginStreak(player: Player, state: AchievementState, suppressNotify: boolean?)
 	local today = os.date("!%Y-%m-%d") :: string
 	local streak = state.loginStreak
 
@@ -194,7 +198,7 @@ local function updateLoginStreak(player: Player, state: AchievementState)
 
 	-- Update the counter and check achievements
 	state.counters["login_streak"] = streak.currentStreak
-	checkAndUnlock(player, state, "login_streak")
+	checkAndUnlock(player, state, "login_streak", suppressNotify)
 end
 
 -- ── Playtime tracking ───────────────────────────────────────────────────
@@ -285,17 +289,20 @@ achLoadFunc.OnInvoke = function(player: Player, savedData: any?)
 	print(string.format("[ACHIEVEMENTS] Loaded %d counters, %d unlocked (%d backfilled) for %s",
 		counterCount, unlockedCount, backfilled, player.Name))
 
-	-- Update login streak on load
-	updateLoginStreak(player, state)
+	-- Update login streak on load (suppress toasts — these are catch-up unlocks)
+	updateLoginStreak(player, state, true)
 
-	-- Initialize credits_peak from current credits if not set
+	-- Initialize credits_peak from current credits if not set (suppress toasts)
 	local credits = player:GetAttribute("Credits")
 	if type(credits) == "number" then
-		setCounterMax(player, state, "credits_peak", credits)
+		setCounterMax(player, state, "credits_peak", credits, true)
 	end
 
 	-- Start watching credits changes
 	watchCredits(player)
+
+	-- Mark player as fully loaded — EventBridge events will now fire toasts
+	playerLoaded[player] = true
 
 	-- Send full state to client
 	task.defer(function()
@@ -353,5 +360,6 @@ Players.PlayerRemoving:Connect(function(player)
 	-- yielding to SetAsync, so the state must remain alive until then.
 	task.defer(function()
 		playerStates[player] = nil
+		playerLoaded[player] = nil
 	end)
 end)

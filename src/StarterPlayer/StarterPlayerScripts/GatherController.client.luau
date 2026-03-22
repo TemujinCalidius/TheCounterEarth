@@ -169,7 +169,7 @@ end
 
 -- ── Floating yield text on the node ──────────────────────────────────
 
-local function showYieldText(model: Model, qty: number, displayName: string)
+local function showYieldText(model: Model, qty: number, displayName: string, yOffset: number?)
 	local adornee = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
 	if not adornee then return end
 
@@ -177,7 +177,7 @@ local function showYieldText(model: Model, qty: number, displayName: string)
 	bb.Name              = "YieldText"
 	bb.Adornee           = adornee
 	bb.Size              = UDim2.new(0, 160, 0, 30)
-	bb.StudsOffset       = Vector3.new(0, 3.5, 0)
+	bb.StudsOffset       = Vector3.new(0, 3.5 + (yOffset or 0), 0)
 	bb.AlwaysOnTop       = true
 	bb.Parent            = player.PlayerGui
 
@@ -421,5 +421,25 @@ harvestNotify.OnClientEvent:Connect(function(message: string)
 	showNotify(message, isError)
 	if string.find(message, "broke") then
 		toolBreakSound:Play()
+	end
+end)
+
+-- ── ButcherNotify handler (floating tips for skinning/butchering) ──────
+
+local butcherNotifyRemote = remotesFolder:WaitForChild("ButcherNotify")
+butcherNotifyRemote.OnClientEvent:Connect(function(msgType: string, model: Model?, data: any)
+	if msgType == "yield" and model then
+		local yields = data :: { string }
+		for idx, yieldStr in ipairs(yields) do
+			-- Parse "2x Raw Venison" → qty=2, name="Raw Venison"
+			local qtyStr, name = yieldStr:match("^(%d+)x (.+)$")
+			local qty = tonumber(qtyStr) or 1
+			local displayName = name or yieldStr
+			-- Stagger each yield vertically so they don't overlap
+			showYieldText(model, qty, displayName, (idx - 1) * 0.6)
+		end
+	elseif msgType == "error" then
+		local message = data :: string
+		showNotify(message, true)
 	end
 end)
