@@ -49,6 +49,50 @@ local YIELDS = {
 	},
 }
 
+-- ── Model swap templates (lazy-loaded from ServerStorage/ScatterModels) ──
+local function getSwapTemplate(name: string): Model?
+	local folder = ServerStorage:WaitForChild("ScatterModels", 10)
+	if not folder then return nil end
+	local tmpl = folder:FindFirstChild(name)
+	return tmpl and tmpl:IsA("Model") and tmpl or nil
+end
+
+-- Replace a carcass model with a new template clone at the same position.
+-- Copies all attributes and re-creates the ProximityPrompt and billboard on the new model.
+-- Returns the new model (caller must update any local references).
+local function replaceCarcassModel(carcass: Model, template: Model): Model
+	local pos = carcass:GetPivot().Position
+
+	-- Copy attributes
+	local attrs = carcass:GetAttributes()
+
+	-- Destroy old carcass
+	carcass:Destroy()
+
+	-- Clone new model
+	local newModel = template:Clone()
+	newModel.Name = "DeerCarcass"
+
+	-- Anchor all parts
+	for _, part in newModel:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+		end
+	end
+
+	-- Restore attributes
+	for k, v in attrs do
+		newModel:SetAttribute(k, v)
+	end
+
+	-- Position at ground level with sink
+	newModel:PivotTo(CFrame.new(pos))
+	newModel.Parent = Workspace
+
+	return newModel
+end
+
 -- ── Active channels (prevent double-interaction) ────────────────────────
 local activeChannels: { [Player]: boolean } = {}
 
@@ -103,12 +147,16 @@ local function setupCarcassPrompts(carcass: Model)
 	local yields = YIELDS[animalType]
 	if not yields then return end
 
-	-- Create the ProximityPrompt
+	-- Already fully butchered — no prompt needed
+	if carcass:GetAttribute("_Butchered") then return end
+
+	-- Create the ProximityPrompt (start at correct step based on _Skinned)
+	local alreadySkinned = carcass:GetAttribute("_Skinned") == true
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Skin"
+	prompt.ActionText = alreadySkinned and "Butcher" or "Skin"
 	prompt.ObjectText = "Deer Carcass"
 	prompt.MaxActivationDistance = INTERACT_RANGE
-	prompt.HoldDuration = SKIN_CHANNEL
+	prompt.HoldDuration = alreadySkinned and BUTCHER_CHANNEL or SKIN_CHANNEL
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = body
 
@@ -135,14 +183,10 @@ local function setupCarcassPrompts(carcass: Model)
 			-- Deduct knife durability
 			durabilityDeduct:Invoke(triggerPlayer, knifeId, SKIN_DUR_COST)
 
-			-- Give skin yields (quality based on knife tier)
+			-- Give skin yields
 			local given = giveYields(triggerPlayer, yields.skin)
 			carcass:SetAttribute("_Skinned", true)
-			carcass:SetAttribute("_SpawnTime", os.time())  -- reset despawn timer
-
-			-- Update prompt for butcher step
-			prompt.ActionText = "Butcher"
-			prompt.HoldDuration = BUTCHER_CHANNEL
+			carcass:SetAttribute("_SpawnTime", os.time())
 
 			-- Notify player with structured yield data
 			butcherNotifyRemote:FireClient(triggerPlayer, "yield", carcass, given)
@@ -154,6 +198,16 @@ local function setupCarcassPrompts(carcass: Model)
 			})
 
 			activeChannels[triggerPlayer] = nil
+
+			-- Replace with skinned model (ChildAdded watcher sets up new prompt)
+			local skinTmpl = getSwapTemplate("deer_skinned")
+			if skinTmpl then
+				replaceCarcassModel(carcass, skinTmpl)
+			else
+				-- No template — just update prompt in place
+				prompt.ActionText = "Butcher"
+				prompt.HoldDuration = BUTCHER_CHANNEL
+			end
 
 		elseif not butchered then
 			-- BUTCHER step
@@ -173,21 +227,12 @@ local function setupCarcassPrompts(carcass: Model)
 			-- Give butcher yields
 			local given = giveYields(triggerPlayer, yields.butcher)
 			carcass:SetAttribute("_Butchered", true)
-			carcass:SetAttribute("_SpawnTime", os.time())  -- reset despawn timer for remains
+			carcass:SetAttribute("_SpawnTime", os.time())
 
-			-- Remove prompt and update billboard
+			-- Remove prompt
 			prompt:Destroy()
 
-			local billboard = body:FindFirstChildOfClass("BillboardGui")
-			if billboard then
-				local label = billboard:FindFirstChildOfClass("TextLabel")
-				if label then
-					label.Text = "Remains"
-					label.TextColor3 = Color3.fromRGB(120, 100, 80)
-				end
-			end
-
-			-- Notify player with structured yield data
+			-- Notify player
 			butcherNotifyRemote:FireClient(triggerPlayer, "yield", carcass, given)
 
 			EventBridge.fire("butcher_complete", triggerPlayer, {
@@ -196,6 +241,12 @@ local function setupCarcassPrompts(carcass: Model)
 			})
 
 			activeChannels[triggerPlayer] = nil
+
+			-- Replace with remains model (no prompt needed)
+			local remainsTmpl = getSwapTemplate("deer_remains")
+			if remainsTmpl then
+				replaceCarcassModel(carcass, remainsTmpl)
+			end
 		end
 	end)
 end

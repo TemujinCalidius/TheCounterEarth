@@ -24,7 +24,13 @@ local DEER_WANDER_RADIUS = animalCfg.DeerWanderRadius or 20
 local DEER_RESPAWN       = animalCfg.DeerRespawnSeconds or { 180, 300 }
 local MAX_DEER_PER_ZONE  = animalCfg.MaxDeerPerZone or 6
 local CARCASS_DESPAWN    = animalCfg.CarcassDespawnSeconds or 300
-local DEER_BODY_HALF_H   = 0.9 -- half the body height, used for ground offset
+local DEER_WALK_ANIM_ID  = "rbxassetid://107696464928075"
+local DEER_WALK_ANIM_SPEED = 1.0  -- playback speed when wandering
+local DEER_FLEE_ANIM_SPEED = 2.0  -- playback speed when fleeing
+local DEER_AMBIENT_SOUND  = "rbxassetid://126885307258010"
+local DEER_SOUND_MIN      = 300   -- minimum seconds between ambient calls (5 min)
+local DEER_SOUND_MAX      = 600   -- maximum seconds between ambient calls (10 min)
+local DEER_SOUND_RANGE    = 80    -- max distance the sound can be heard (studs)
 
 -- ── Deer state types ────────────────────────────────────────────────────
 type DeerState = "idle" | "wander" | "flee" | "dead"
@@ -32,11 +38,13 @@ type DeerState = "idle" | "wander" | "flee" | "dead"
 type DeerData = {
 	model: Model,
 	humanoid: Humanoid,
+	walkTrack: AnimationTrack?,
 	state: DeerState,
 	spawnPoint: Vector3,
 	zone: BasePart,
 	lastDamageBy: Player?,
 	damageFlee: boolean,
+	halfHeight: number,     -- half bounding-box height, for ground offset
 	-- CFrame movement
 	moveTarget: Vector3?,   -- nil = standing still
 	moveSpeed: number,      -- studs/sec for current movement
@@ -59,21 +67,28 @@ local function buildRayParams()
 	animalRayParams = RaycastParams.new()
 	animalRayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local filterList = { animalsFolder }
-	local scatterZones = Workspace:FindFirstChild("ScatterZones")
-	if scatterZones then table.insert(filterList, scatterZones) end
-	local animalZones = Workspace:FindFirstChild("AnimalZones")
-	if animalZones then table.insert(filterList, animalZones) end
-	local scatterFolder = Workspace:FindFirstChild("Scatter")
-	if scatterFolder then table.insert(filterList, scatterFolder) end
+	-- Exclude all zone folders and scatter items so rays hit only terrain/geometry
+	for _, name in { "ScatterZones", "AnimalZones", "Scatter" } do
+		local folder = Workspace:FindFirstChild(name)
+		if folder then table.insert(filterList, folder) end
+	end
 	animalRayParams.FilterDescendantsInstances = filterList
 end
+
+-- Rebuild ray params once workspace is fully loaded to pick up all folders
+task.defer(function()
+	-- Wait for ScatterZones to exist (ScatterSpawnService creates scatter items inside it)
+	Workspace:WaitForChild("ScatterZones", 15)
+	Workspace:WaitForChild("Scatter", 15)
+	buildRayParams()
+end)
 
 -- ── Terrain helpers ─────────────────────────────────────────────────────
 
 local VOXEL_RES = 4 -- Terrain voxel resolution (always 4 studs)
 
--- Snap a position to terrain ground, returning ground-level Y for the body center
-local function groundSnapY(x: number, z: number): number?
+-- Snap a position to terrain ground, returning the ground surface Y
+local function groundSurfaceY(x: number, z: number): number?
 	if not animalRayParams then buildRayParams() end
 	local rayResult = Workspace:Raycast(
 		Vector3.new(x, 500, z),
@@ -81,7 +96,7 @@ local function groundSnapY(x: number, z: number): number?
 		animalRayParams
 	)
 	if rayResult then
-		return rayResult.Position.Y + DEER_BODY_HALF_H + 0.5
+		return rayResult.Position.Y
 	end
 	return nil
 end
@@ -103,7 +118,7 @@ end
 
 -- Check if a position is in or near water
 local function isNearWater(x: number, z: number): boolean
-	local groundY = groundSnapY(x, z)
+	local groundY = groundSurfaceY(x, z)
 	if not groundY then return false end -- no ground ≠ water, just void
 	local pos = Vector3.new(x, groundY, z)
 	-- Check column below, at, and above ground
@@ -113,130 +128,164 @@ local function isNearWater(x: number, z: number): boolean
 	return false
 end
 
--- ── Placeholder deer model ──────────────────────────────────────────────
+-- ── Deer model (clones from ServerStorage/ScatterModels/deer) ───────────
+local deerTemplate: Model? = nil
+do
+	local scatterModels = ServerStorage:FindFirstChild("ScatterModels")
+	if scatterModels then
+		deerTemplate = scatterModels:FindFirstChild("deer") :: Model?
+	end
+end
+
 local function createDeerModel(position: Vector3): Model
-	local model = Instance.new("Model")
-	model.Name = "Deer"
+	local model: Model
+	if deerTemplate then
+		model = deerTemplate:Clone()
+		model.Name = "Deer"
+	else
+		-- Fallback placeholder if no mesh template exists yet
+		model = Instance.new("Model")
+		model.Name = "Deer"
 
-	-- Body (root, anchored — we move it via PivotTo; children follow via welds)
-	local body = Instance.new("Part")
-	body.Name = "HumanoidRootPart"
-	body.Size = Vector3.new(1.5, 1.8, 3.0)
-	body.Color = Color3.fromRGB(139, 90, 43)
-	body.Material = Enum.Material.SmoothPlastic
-	body.Anchored = true
-	body.CanCollide = false
-	body.Parent = model
+		local body = Instance.new("Part")
+		body.Name = "HumanoidRootPart"
+		body.Size = Vector3.new(1.5, 1.8, 3.0)
+		body.Color = Color3.fromRGB(139, 90, 43)
+		body.Material = Enum.Material.SmoothPlastic
+		body.Anchored = true
+		body.CanCollide = false
+		body.Parent = model
 
-	-- Head (unanchored, welded to body — follows automatically)
-	local head = Instance.new("Part")
-	head.Name = "Head"
-	head.Size = Vector3.new(0.8, 0.8, 1.0)
-	head.Color = Color3.fromRGB(160, 110, 60)
-	head.Material = Enum.Material.SmoothPlastic
-	head.Anchored = false
-	head.CanCollide = false
-	head.Parent = model
+		model.PrimaryPart = body
+	end
 
-	local headWeld = Instance.new("WeldConstraint")
-	headWeld.Part0 = body
-	headWeld.Part1 = head
-	headWeld.Parent = head
-	head.CFrame = body.CFrame * CFrame.new(0, 0.5, -1.8)
+	local root = model.PrimaryPart :: BasePart
+	root.Anchored = true
+	root.CanCollide = false
 
-	-- Legs (unanchored, welded to body)
-	local legPositions = {
-		Vector3.new(-0.5, -0.9, -0.8),
-		Vector3.new(0.5, -0.9, -0.8),
-		Vector3.new(-0.5, -0.9, 0.8),
-		Vector3.new(0.5, -0.9, 0.8),
-	}
-	for i, offset in ipairs(legPositions) do
-		local leg = Instance.new("Part")
-		leg.Name = "Leg" .. i
-		leg.Size = Vector3.new(0.3, 1.5, 0.3)
-		leg.Color = Color3.fromRGB(120, 80, 40)
-		leg.Material = Enum.Material.SmoothPlastic
-		leg.Anchored = false
-		leg.CanCollide = false
-		leg.Parent = model
-
-		local legWeld = Instance.new("WeldConstraint")
-		legWeld.Part0 = body
-		legWeld.Part1 = leg
-		legWeld.Parent = leg
-		leg.CFrame = body.CFrame * CFrame.new(offset)
+	-- Ensure all non-root parts are unanchored (welds keep them attached)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") and part ~= root then
+			part.Anchored = false
+			part.CanCollide = false
+		end
 	end
 
 	-- Humanoid (for health tracking + damage reception only, NOT for movement)
-	local humanoid = Instance.new("Humanoid")
-	humanoid.MaxHealth = DEER_HEALTH
-	humanoid.Health = DEER_HEALTH
-	humanoid.WalkSpeed = 0
-	humanoid.JumpPower = 0
-	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-	humanoid.Parent = model
+	if not model:FindFirstChildOfClass("Humanoid") then
+		local humanoid = Instance.new("Humanoid")
+		humanoid.MaxHealth = DEER_HEALTH
+		humanoid.Health = DEER_HEALTH
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		humanoid.Parent = model
+	else
+		local humanoid = model:FindFirstChildOfClass("Humanoid") :: Humanoid
+		humanoid.MaxHealth = DEER_HEALTH
+		humanoid.Health = DEER_HEALTH
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end
 
-	-- Name billboard
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromOffset(100, 30)
-	billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 40
-	billboard.Parent = head
+	-- Name billboard + health bar on Head
+	local head = model:FindFirstChild("Head")
+	if head then
+		-- Only add billboard if not already in template
+		if not head:FindFirstChildOfClass("BillboardGui") then
+			local billboard = Instance.new("BillboardGui")
+			billboard.Size = UDim2.fromOffset(100, 30)
+			billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+			billboard.AlwaysOnTop = false
+			billboard.MaxDistance = 40
+			billboard.Parent = head
 
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.fromScale(1, 1)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Text = "Deer"
-	nameLabel.TextColor3 = Color3.fromRGB(200, 180, 140)
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextSize = 14
-	nameLabel.TextStrokeTransparency = 0.5
-	nameLabel.Parent = billboard
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.fromScale(1, 1)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Text = "Deer"
+			nameLabel.TextColor3 = Color3.fromRGB(200, 180, 140)
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextSize = 14
+			nameLabel.TextStrokeTransparency = 0.5
+			nameLabel.Parent = billboard
 
-	-- Health bar
-	local hpBar = Instance.new("Frame")
-	hpBar.Name = "HealthBar"
-	hpBar.Size = UDim2.new(0.6, 0, 0, 4)
-	hpBar.Position = UDim2.new(0.2, 0, 1, 2)
-	hpBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-	hpBar.BorderSizePixel = 0
-	hpBar.Parent = billboard
+			local hpBar = Instance.new("Frame")
+			hpBar.Name = "HealthBar"
+			hpBar.Size = UDim2.new(0.6, 0, 0, 4)
+			hpBar.Position = UDim2.new(0.2, 0, 1, 2)
+			hpBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+			hpBar.BorderSizePixel = 0
+			hpBar.Parent = billboard
 
-	local hpFill = Instance.new("Frame")
-	hpFill.Name = "Fill"
-	hpFill.Size = UDim2.fromScale(1, 1)
-	hpFill.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
-	hpFill.BorderSizePixel = 0
-	hpFill.Parent = hpBar
+			local hpFill = Instance.new("Frame")
+			hpFill.Name = "Fill"
+			hpFill.Size = UDim2.fromScale(1, 1)
+			hpFill.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+			hpFill.BorderSizePixel = 0
+			hpFill.Parent = hpBar
+		end
+	end
 
-	model.PrimaryPart = body
+	-- Ambient sound (plays from deer's position, audible within range)
+	local ambientSound = Instance.new("Sound")
+	ambientSound.Name = "AmbientCall"
+	ambientSound.SoundId = DEER_AMBIENT_SOUND
+	ambientSound.Volume = 0.5
+	ambientSound.RollOffMaxDistance = DEER_SOUND_RANGE
+	ambientSound.RollOffMinDistance = 10
+	ambientSound.Parent = root
 
-	-- Place at ground level
-	local groundY = groundSnapY(position.X, position.Z) or (position.Y + DEER_BODY_HALF_H)
-	body.CFrame = CFrame.new(position.X, groundY, position.Z)
+	-- Place at ground level — offset so the model's bottom sits on the surface
+	local surfaceY = groundSurfaceY(position.X, position.Z) or position.Y
+	local _, modelSize = model:GetBoundingBox()
+	local halfHeight = modelSize.Y / 2
+	model:PivotTo(CFrame.new(position.X, surfaceY + halfHeight, position.Z))
 	model.Parent = animalsFolder
 
 	return model
 end
 
 -- ── Carcass spawning ────────────────────────────────────────────────────
+local CARCASS_GROUND_SINK = 2.0  -- studs to sink into ground to hide mesh imperfections
+
+local carcassTemplate: Model? = nil
+do
+	local scatterModels = ServerStorage:FindFirstChild("ScatterModels")
+	if scatterModels then
+		carcassTemplate = scatterModels:FindFirstChild("deer_carcass") :: Model?
+	end
+end
+
 local function spawnCarcass(position: Vector3, killerPlayer: Player?)
-	local carcass = Instance.new("Model")
-	carcass.Name = "DeerCarcass"
+	local carcass: Model
+	if carcassTemplate then
+		carcass = carcassTemplate:Clone()
+		carcass.Name = "DeerCarcass"
+	else
+		-- Fallback placeholder
+		carcass = Instance.new("Model")
+		carcass.Name = "DeerCarcass"
 
-	local body = Instance.new("Part")
-	body.Name = "Body"
-	body.Size = Vector3.new(1.5, 1.0, 3.0)
-	body.Color = Color3.fromRGB(100, 65, 30)
-	body.Material = Enum.Material.SmoothPlastic
-	body.Anchored = true
-	body.CanCollide = true
-	body.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
-	body.Parent = carcass
+		local body = Instance.new("Part")
+		body.Name = "Body"
+		body.Size = Vector3.new(1.5, 1.0, 3.0)
+		body.Color = Color3.fromRGB(100, 65, 30)
+		body.Material = Enum.Material.SmoothPlastic
+		body.Anchored = true
+		body.CanCollide = true
+		body.Parent = carcass
+		carcass.PrimaryPart = body
+	end
 
-	carcass.PrimaryPart = body
+	-- Ensure all parts are anchored and non-collidable
+	for _, part in carcass:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+		end
+	end
 
 	carcass:SetAttribute("_IsCarcass", true)
 	carcass:SetAttribute("_AnimalType", "deer")
@@ -247,23 +296,32 @@ local function spawnCarcass(position: Vector3, killerPlayer: Player?)
 		carcass:SetAttribute("_KillerUserId", killerPlayer.UserId)
 	end
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromOffset(120, 30)
-	billboard.StudsOffset = Vector3.new(0, 1.5, 0)
-	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 30
-	billboard.Parent = body
+	-- Billboard label
+	local billboardParent = carcass.PrimaryPart or carcass:FindFirstChildWhichIsA("BasePart")
+	if billboardParent and not billboardParent:FindFirstChildOfClass("BillboardGui") then
+		local billboard = Instance.new("BillboardGui")
+		billboard.Size = UDim2.fromOffset(120, 30)
+		billboard.StudsOffset = Vector3.new(0, 1.5, 0)
+		billboard.AlwaysOnTop = false
+		billboard.MaxDistance = 30
+		billboard.Parent = billboardParent
 
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.Text = "Deer Carcass"
-	label.TextColor3 = Color3.fromRGB(180, 140, 100)
-	label.Font = Enum.Font.GothamBold
-	label.TextSize = 14
-	label.TextStrokeTransparency = 0.5
-	label.Parent = billboard
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = "Deer Carcass"
+		label.TextColor3 = Color3.fromRGB(180, 140, 100)
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 14
+		label.TextStrokeTransparency = 0.5
+		label.Parent = billboard
+	end
 
+	-- Place at ground level, sunk slightly to hide mesh imperfections
+	local surfaceY = groundSurfaceY(position.X, position.Z) or position.Y
+	local _, modelSize = carcass:GetBoundingBox()
+	local halfHeight = modelSize.Y / 2
+	carcass:PivotTo(CFrame.new(position.X, surfaceY + halfHeight - CARCASS_GROUND_SINK, position.Z))
 	carcass.Parent = Workspace
 
 	-- Polling despawn: checks _SpawnTime so ButcherService can reset the timer
@@ -291,7 +349,7 @@ local function randomInZone(zone: BasePart): Vector3
 	local rz = (math.random() - 0.5) * size.Z
 	local worldPos = cf:PointToWorldSpace(Vector3.new(rx, 0, rz))
 
-	local groundY = groundSnapY(worldPos.X, worldPos.Z)
+	local groundY = groundSurfaceY(worldPos.X, worldPos.Z)
 	if groundY then
 		return Vector3.new(worldPos.X, groundY, worldPos.Z)
 	end
@@ -337,7 +395,7 @@ local function pickSafeTarget(origin: Vector3, direction: Vector3, dist: number)
 		local tx = origin.X + dir.X * dist
 		local tz = origin.Z + dir.Z * dist
 		if not isNearWater(tx, tz) then
-			local gy = groundSnapY(tx, tz)
+			local gy = groundSurfaceY(tx, tz)
 			if gy then
 				return Vector3.new(tx, gy, tz)
 			end
@@ -380,8 +438,9 @@ RunService.Heartbeat:Connect(function(dt: number)
 				local newX = pos.X + dirX * step
 				local newZ = pos.Z + dirZ * step
 
-				-- Ground snap
-				local newY = groundSnapY(newX, newZ) or pos.Y
+				-- Ground snap (offset by half-height so feet sit on surface)
+				local surfY = groundSurfaceY(newX, newZ)
+				local newY = surfY and (surfY + deer.halfHeight) or pos.Y
 
 				-- Face movement direction
 				local newPos = Vector3.new(newX, newY, newZ)
@@ -410,6 +469,23 @@ RunService.Heartbeat:Connect(function(dt: number)
 	end
 end)
 
+-- ── Ambient sound loop (runs as separate coroutine per deer) ────────────
+local function runDeerAmbientSound(deer: DeerData)
+	local model = deer.model
+	-- Initial delay so all deer don't call at once
+	task.wait(math.random(30, DEER_SOUND_MAX))
+	while model.Parent and deer.state ~= "dead" do
+		local root = model.PrimaryPart
+		if root then
+			local sound = root:FindFirstChild("AmbientCall") :: Sound?
+			if sound and not sound.IsPlaying then
+				sound:Play()
+			end
+		end
+		task.wait(math.random(DEER_SOUND_MIN, DEER_SOUND_MAX))
+	end
+end
+
 -- ── Per-deer coroutine AI loop ──────────────────────────────────────────
 local function runDeerAI(deer: DeerData)
 	local model = deer.model
@@ -429,6 +505,10 @@ local function runDeerAI(deer: DeerData)
 			-- Flee
 			deer.state = "flee"
 			deer.moveSpeed = DEER_FLEE_SPEED
+			if deer.walkTrack then
+				deer.walkTrack:AdjustSpeed(DEER_FLEE_ANIM_SPEED)
+				if not deer.walkTrack.IsPlaying then deer.walkTrack:Play() end
+			end
 
 			-- Direction away from player
 			local fleeDir: Vector3?
@@ -466,6 +546,9 @@ local function runDeerAI(deer: DeerData)
 			deer.state = "idle"
 			deer.moveTarget = nil
 			deer.moveSpeed = DEER_WALK_SPEED
+			if deer.walkTrack and deer.walkTrack.IsPlaying then
+				deer.walkTrack:Stop()
+			end
 
 			-- Wait idle duration, check for flee interrupt
 			local idleTime = math.random(DEER_IDLE_DUR[1], DEER_IDLE_DUR[2])
@@ -486,6 +569,10 @@ local function runDeerAI(deer: DeerData)
 			-- Wander: pick random point near spawn (avoiding water)
 			deer.state = "wander"
 			deer.moveSpeed = DEER_WALK_SPEED
+			if deer.walkTrack then
+				deer.walkTrack:AdjustSpeed(DEER_WALK_ANIM_SPEED)
+				if not deer.walkTrack.IsPlaying then deer.walkTrack:Play() end
+			end
 			local wanderDir = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5).Unit
 			local wanderDist = math.random(5, DEER_WANDER_RADIUS)
 			local safeTarget = pickSafeTarget(deer.spawnPoint, wanderDir, wanderDist)
@@ -514,13 +601,13 @@ end
 local function onDeerDied(deer: DeerData)
 	deer.state = "dead"
 	deer.moveTarget = nil
+	if deer.walkTrack and deer.walkTrack.IsPlaying then
+		deer.walkTrack:Stop()
+	end
 	local pos = deer.model.PrimaryPart and deer.model.PrimaryPart.Position or Vector3.zero
 
 	spawnCarcass(pos, deer.lastDamageBy)
-
-	task.delay(2, function()
-		if deer.model.Parent then deer.model:Destroy() end
-	end)
+	deer.model:Destroy()
 
 	local respawnTime = math.random(DEER_RESPAWN[1], DEER_RESPAWN[2])
 	task.delay(respawnTime, function()
@@ -547,14 +634,29 @@ function spawnDeerInZone(zone: BasePart)
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
 
+	-- Load walk animation
+	local walkTrack: AnimationTrack? = nil
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	local walkAnim = Instance.new("Animation")
+	walkAnim.AnimationId = DEER_WALK_ANIM_ID
+	walkTrack = animator:LoadAnimation(walkAnim)
+	walkTrack.Looped = true
+
+	local _, modelSize = model:GetBoundingBox()
 	local deer: DeerData = {
 		model = model,
 		humanoid = humanoid,
+		walkTrack = walkTrack,
 		state = "idle",
 		spawnPoint = spawnPos,
 		zone = zone,
 		lastDamageBy = nil,
 		damageFlee = false,
+		halfHeight = modelSize.Y / 2,
 		moveTarget = nil,
 		moveSpeed = DEER_WALK_SPEED,
 	}
@@ -583,8 +685,9 @@ function spawnDeerInZone(zone: BasePart)
 		end
 	end)
 
-	-- Start per-deer AI coroutine
+	-- Start per-deer AI coroutine + ambient sound loop
 	task.spawn(runDeerAI, deer)
+	task.spawn(runDeerAmbientSound, deer)
 end
 
 -- ── Initialize from AnimalZones ─────────────────────────────────────────

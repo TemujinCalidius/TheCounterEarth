@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.22.1] - Deer mesh, carcass models, and ambient sounds
+
+### Added
+- **Deer mesh model** — replaces placeholder brown cube with proper mesh from ScatterModels, auto-sized ground placement
+- **Walk animation** — deer play walk animation when wandering (1x speed) and fleeing (2x speed)
+- **Ambient deer sounds** — random calls every 5-10 minutes per deer, positional audio with 80-stud range
+- **Carcass model stages** — dedicated meshes for deer_carcass, deer_skinned, and deer_remains, swapped on interaction
+- **Carcass ground sink** — configurable `CARCASS_GROUND_SINK` to hide mesh imperfections at ground level
+
+### Changed
+- **Deer death** — model now destroyed immediately when carcass spawns (was 2s delay)
+- **Ground placement** — uses bounding box height instead of hardcoded offset for deer and carcass positioning
+- **Carcass model swap** — full model replacement approach (clone template, copy attributes) instead of part swapping
+- **Raycast rebuild** — deferred rebuild of animal raycast params to pick up late-loading ScatterZones folder
+
+---
+
 ## [0.22.0] - Combat, bow & arrows, hunting, and butchering
 
 ### Added
