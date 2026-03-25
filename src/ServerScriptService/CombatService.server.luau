@@ -55,26 +55,34 @@ local function findNearestTarget(player: Player, maxRange: number): (Humanoid?, 
 	local bestPlayer: Player? = nil
 	local bestModel: Model? = nil
 
-	-- Check all characters (players + NPCs)
-	for _, candidate in Workspace:GetChildren() do
-		if not candidate:IsA("Model") then continue end
-		if candidate == char then continue end
+	-- Check all characters (players + NPCs in subfolders)
+	local searchLists = { Workspace:GetChildren() }
+	local zombiesFolder = Workspace:FindFirstChild("Zombies")
+	if zombiesFolder then table.insert(searchLists, zombiesFolder:GetChildren()) end
+	local animalsFolder = Workspace:FindFirstChild("Animals")
+	if animalsFolder then table.insert(searchLists, animalsFolder:GetChildren()) end
 
-		local hum = candidate:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.Health <= 0 then continue end
+	for _, list in searchLists do
+		for _, candidate in list do
+			if not candidate:IsA("Model") then continue end
+			if candidate == char then continue end
 
-		local candidateRoot = candidate:FindFirstChild("HumanoidRootPart")
-			or candidate.PrimaryPart
-			or candidate:FindFirstChildWhichIsA("BasePart")
-		if not candidateRoot then continue end
+			local hum = candidate:FindFirstChildOfClass("Humanoid")
+			if not hum or hum.Health <= 0 then continue end
 
-		local dist = (candidateRoot.Position - pos).Magnitude
-		if dist < bestDist then
-			bestDist = dist
-			bestHum = hum
-			bestModel = candidate
-			-- Check if this is a player character
-			bestPlayer = Players:GetPlayerFromCharacter(candidate)
+			local candidateRoot = candidate:FindFirstChild("HumanoidRootPart")
+				or candidate.PrimaryPart
+				or candidate:FindFirstChildWhichIsA("BasePart")
+			if not candidateRoot then continue end
+
+			local dist = (candidateRoot.Position - pos).Magnitude
+			if dist < bestDist then
+				bestDist = dist
+				bestHum = hum
+				bestModel = candidate
+				-- Check if this is a player character
+				bestPlayer = Players:GetPlayerFromCharacter(candidate)
+			end
 		end
 	end
 

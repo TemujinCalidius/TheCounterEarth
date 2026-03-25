@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.23.0] - Zombie NPC system
+
+### Added
+- **ZombieService** — hostile NPC system with zone-based spawning, AI state machine (idle → wander → chase → attack → dead), and per-zombie coroutine AI
+- **9 zombie animations** — regular idle, crawling idle, standup from crawl, slow walk, scream on detection, run chase, melee attack, and 2 random death animations
+- **5 positional sounds** — 2 idle groans, detection scream, attack sound, death sound
+- **Zombie combat** — detects players within 30 studs, chases at run speed, melee attacks with damage and cooldown, leash radius to prevent infinite chase
+- **Corpse fade** — zombie body persists after death, then fades out over 1 second before despawning
+- **NPC damage attribution** — `NpcDamageTag` BindableEvent tracks zombie damage so death cause displays correctly
+- **ZombieZones** — configurable spawn zones with `MaxZombies` and `ZombieType` attributes for variant support
+
+### Changed
+- **CombatService** — `findNearestTarget()` now searches `Workspace/Zombies` and `Workspace/Animals` subfolders (fixes melee weapons not hitting subfolder NPCs)
+
+### Fixed
+- **Melee target search** — weapons could not hit deer or any NPC in subfolders; now searches all NPC folders
+
+---
+
 ## [0.22.2] - Bow & arrow meshes, deer death sound, asset preloading
 
 ### Added

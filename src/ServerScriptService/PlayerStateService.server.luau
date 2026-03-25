@@ -95,6 +95,20 @@ pvpDamageEvent.Event:Connect(function(victim: Player, attacker: Player)
 	state.lastDamageByName = attacker.DisplayName
 end)
 
+-- NPC damage tagging: hostile NPCs fire this when dealing damage to a player.
+-- Args: (victimPlayer: Player, npcType: string)
+local npcDamageEvent = Instance.new("BindableEvent")
+npcDamageEvent.Name = "NpcDamageTag"
+npcDamageEvent.Parent = bindablesFolder
+
+npcDamageEvent.Event:Connect(function(victim: Player, npcType: string)
+	local state = playerStates[victim]
+	if not state then return end
+	state.lastDamageCause = npcType  -- "zombie", etc.
+	state.lastDamageByUserId = nil
+	state.lastDamageByName = nil
+end)
+
 type PlayerState = {
 	energy: number,
 	savedHealth: number,

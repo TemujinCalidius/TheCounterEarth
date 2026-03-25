@@ -175,6 +175,26 @@ return {
 		CarcassDespawnSeconds = 300,  -- 5 min
 	},
 
+	Zombie = {
+		Health = 50,
+		WalkSpeed = 2,                 -- slow patrol speed
+		RunSpeed = 14,                 -- chase speed
+		DetectionRadius = 30,          -- studs: triggers chase
+		AttackRange = 5,               -- studs: melee hit range
+		AttackDamage = 15,             -- HP per hit
+		AttackCooldown = 1.5,          -- seconds between attacks
+		AttackDamageDelay = 0.4,       -- seconds into attack anim when damage applies
+		LeashRadius = 80,              -- studs from spawn: max chase distance
+		IdleDuration = { 4, 10 },     -- seconds (min, max)
+		WanderRadius = 12,             -- studs from spawn point
+		RespawnSeconds = { 60, 120 },  -- seconds after death
+		MaxPerZone = 4,
+		CorpsePersistSeconds = 8,      -- how long body stays after death anim
+		CorpseFadeSeconds = 1,         -- fade-out duration
+		IdleSoundInterval = { 30, 90 },-- seconds between idle sounds
+		SoundRange = 50,               -- rolloff max distance
+	},
+
 	Butcher = {
 		SkinChannelSeconds = 3,
 		ButcherChannelSeconds = 4,
