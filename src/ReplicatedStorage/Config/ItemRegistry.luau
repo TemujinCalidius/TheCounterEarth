@@ -505,6 +505,7 @@ Items.primitive_bow = {
 		ammoItemId = "stone_arrow",
 	},
 	tags = { "weapon", "bow", "tier0", "primitive" },
+	gripCFrame = CFrame.new(0.020, -0.011, 0.150) * CFrame.Angles(math.rad(5.4), math.rad(163.0), math.rad(-90.9)),
 	icon = "rbxassetid://121596783349256",
 }
 

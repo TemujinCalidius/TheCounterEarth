@@ -43,6 +43,7 @@ local pvpDamageTag: BindableEvent = bindables:WaitForChild("PvPDamageTag") :: Bi
 -- ── Active arrows ───────────────────────────────────────────────────────
 type ActiveArrow = {
 	part: BasePart,
+	model: Model?,  -- set when using mesh arrow (for PivotTo)
 	velocity: Vector3,
 	owner: Player,
 	damage: number,
@@ -56,7 +57,17 @@ local activeArrows: { ActiveArrow } = {}
 local lastFireTime: { [Player]: number } = {}
 
 -- ── Arrow model ─────────────────────────────────────────────────────────
-local function createArrowPart(origin: CFrame, direction: Vector3): BasePart
+local scatterModels = ServerStorage:FindFirstChild("ScatterModels")
+local arrowTemplate = scatterModels and scatterModels:FindFirstChild("stone_arrow") :: Model?
+
+-- Publish arrow template to ReplicatedStorage so clients can show nocked arrow
+if arrowTemplate then
+	local clientCopy = arrowTemplate:Clone()
+	clientCopy.Name = "stone_arrow"
+	clientCopy.Parent = ReplicatedStorage
+end
+
+local function createPlaceholderArrow(origin: CFrame, direction: Vector3): BasePart
 	local arrow = Instance.new("Part")
 	arrow.Name = "Arrow"
 	arrow.Size = Vector3.new(0.1, 0.1, 2.0)
@@ -90,6 +101,38 @@ local function createArrowPart(origin: CFrame, direction: Vector3): BasePart
 	return arrow
 end
 
+-- Rotation offset to align Y-up mesh along -Z (flight direction)
+local ARROW_MESH_ROTATION = CFrame.Angles(math.rad(-90), 0, 0)
+
+local function createArrowPart(origin: CFrame, direction: Vector3): (BasePart, Model?)
+	if arrowTemplate then
+		local model = arrowTemplate:Clone()
+		model.Name = "Arrow"
+
+		local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+		if not root then
+			model:Destroy()
+			return createPlaceholderArrow(origin, direction), nil
+		end
+
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.Anchored = true
+				part.CanCollide = false
+				part.CastShadow = false
+			end
+		end
+
+		local cf = CFrame.lookAt(origin.Position, origin.Position + direction) * ARROW_MESH_ROTATION
+		model:PivotTo(cf)
+		model.Parent = Workspace
+
+		return root, model
+	end
+
+	return createPlaceholderArrow(origin, direction), nil
+end
+
 -- ── Raycast params ──────────────────────────────────────────────────────
 local function makeRaycastParams(owner: Player): RaycastParams
 	local params = RaycastParams.new()
@@ -119,7 +162,11 @@ local function handleHit(arrowData: ActiveArrow, hitResult: RaycastResult)
 
 	-- Position arrow at hit point, embedded slightly
 	local hitCFrame = CFrame.lookAt(hitResult.Position - arrowData.velocity.Unit * 0.3, hitResult.Position + arrowData.velocity.Unit)
-	arrow.CFrame = hitCFrame
+	if arrowData.model then
+		arrowData.model:PivotTo(hitCFrame * ARROW_MESH_ROTATION)
+	else
+		arrow.CFrame = hitCFrame
+	end
 
 	-- Check if we hit a character with Humanoid
 	local hitPart = hitResult.Instance
@@ -234,7 +281,11 @@ RunService.Heartbeat:Connect(function(dt: number)
 			handleHit(arrowData, result)
 		else
 			-- Update position and orientation
-			arrow.CFrame = CFrame.lookAt(newPos, newPos + arrowData.velocity.Unit)
+			if arrowData.model then
+				arrowData.model:PivotTo(CFrame.lookAt(newPos, newPos + arrowData.velocity.Unit) * ARROW_MESH_ROTATION)
+			else
+				arrow.CFrame = CFrame.lookAt(newPos, newPos + arrowData.velocity.Unit)
+			end
 		end
 
 		i += 1
@@ -324,10 +375,20 @@ bowFireRemote.OnServerEvent:Connect(function(player: Player, direction: Vector3,
 
 	local spawnCFrame = CFrame.lookAt(spawnPos, spawnPos + direction)
 
+	-- Play bow fire sound from player's position
+	local fireSound = Instance.new("Sound")
+	fireSound.SoundId = "rbxassetid://111970753008354"
+	fireSound.Volume = 0.8
+	fireSound.RollOffMaxDistance = 60
+	fireSound.Parent = root
+	fireSound:Play()
+	fireSound.Ended:Once(function() fireSound:Destroy() end)
+
 	-- Create arrow
-	local arrowPart = createArrowPart(spawnCFrame, direction)
+	local arrowPart, arrowModel = createArrowPart(spawnCFrame, direction)
 	local arrowData: ActiveArrow = {
 		part = arrowPart,
+		model = arrowModel,
 		velocity = direction * speed,
 		owner = player,
 		damage = damage,

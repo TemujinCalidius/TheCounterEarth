@@ -27,6 +27,64 @@ local remotesFolder      = ReplicatedStorage:WaitForChild("Remotes")
 local bowFireRemote      = remotesFolder:WaitForChild("BowFireRequest")
 local bowArrowSpawnRemote = remotesFolder:WaitForChild("BowArrowSpawn")
 
+-- ── Nocked arrow visual ──────────────────────────────────────────────────
+local activeNockedArrow: Model? = nil
+
+local function showNockedArrow()
+	if activeNockedArrow then return end
+	local template = ReplicatedStorage:FindFirstChild("stone_arrow")
+	if not template or not template:IsA("Model") then return end
+
+	local char = player.Character
+	if not char then return end
+	-- Find the bow tool's Handle in the character
+	local bowTool: Tool? = nil
+	for _, child in char:GetChildren() do
+		if child:IsA("Tool") then
+			local def = ItemRegistry.get(child.Name)
+			if def and def.weapon and def.weapon.kind == "bow" then
+				bowTool = child
+				break
+			end
+		end
+	end
+	if not bowTool then return end
+	local handle = bowTool:FindFirstChild("Handle") :: BasePart?
+	if not handle then return end
+
+	local arrow = template:Clone()
+	arrow.Name = "NockedArrow"
+	for _, part in arrow:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Anchored = false
+			part.CanCollide = false
+			part.CastShadow = false
+			part.Massless = true
+		end
+	end
+
+	-- Weld arrow to bow handle
+	local root = arrow.PrimaryPart or arrow:FindFirstChildWhichIsA("BasePart")
+	if not root then arrow:Destroy() return end
+
+	arrow:PivotTo(handle.CFrame * CFrame.Angles(math.rad(-90), 0, 0))
+	arrow.Parent = char
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = handle
+	weld.Part1 = root
+	weld.Parent = root
+
+	activeNockedArrow = arrow
+end
+
+local function hideNockedArrow()
+	if activeNockedArrow then
+		activeNockedArrow:Destroy()
+		activeNockedArrow = nil
+	end
+end
+
 -- ── State ───────────────────────────────────────────────────────────────
 local isAiming    = false
 local isDrawing   = false
@@ -208,6 +266,7 @@ local function exitAimMode()
 	if not isAiming then return end
 	isAiming = false
 	isDrawing = false
+	hideNockedArrow()
 
 	-- Hide crosshair
 	crosshairGui.Enabled = false
@@ -243,11 +302,13 @@ local function startDraw()
 	if isDrawing then return end
 	isDrawing = true
 	drawStartTime = os.clock()
+	showNockedArrow()
 end
 
 local function releaseFire()
 	if not isDrawing then return end
 	isDrawing = false
+	hideNockedArrow()
 
 	local drawTime = os.clock() - drawStartTime
 	if drawTime < DRAW_TIME_MIN then return end -- too quick, don't fire

@@ -31,6 +31,7 @@ local DEER_AMBIENT_SOUND  = "rbxassetid://126885307258010"
 local DEER_SOUND_MIN      = 300   -- minimum seconds between ambient calls (5 min)
 local DEER_SOUND_MAX      = 600   -- maximum seconds between ambient calls (10 min)
 local DEER_SOUND_RANGE    = 80    -- max distance the sound can be heard (studs)
+local DEER_DEATH_SOUND    = "rbxassetid://134371029717438"
 
 -- ── Deer state types ────────────────────────────────────────────────────
 type DeerState = "idle" | "wander" | "flee" | "dead"
@@ -604,10 +605,29 @@ local function onDeerDied(deer: DeerData)
 	if deer.walkTrack and deer.walkTrack.IsPlaying then
 		deer.walkTrack:Stop()
 	end
-	local pos = deer.model.PrimaryPart and deer.model.PrimaryPart.Position or Vector3.zero
+	local root = deer.model.PrimaryPart
+	local pos = root and root.Position or Vector3.zero
 
 	spawnCarcass(pos, deer.lastDamageBy)
-	deer.model:Destroy()
+
+	-- Play death cry then destroy the deer model
+	if root then
+		local deathSound = Instance.new("Sound")
+		deathSound.SoundId = DEER_DEATH_SOUND
+		deathSound.Volume = 1
+		deathSound.RollOffMaxDistance = DEER_SOUND_RANGE
+		deathSound.Parent = root
+		deathSound:Play()
+		-- Hide the deer immediately but keep model alive for sound
+		for _, part in deer.model:GetDescendants() do
+			if part:IsA("BasePart") then part.Transparency = 1 end
+		end
+		task.delay(3, function()
+			if deer.model.Parent then deer.model:Destroy() end
+		end)
+	else
+		deer.model:Destroy()
+	end
 
 	local respawnTime = math.random(DEER_RESPAWN[1], DEER_RESPAWN[2])
 	task.delay(respawnTime, function()

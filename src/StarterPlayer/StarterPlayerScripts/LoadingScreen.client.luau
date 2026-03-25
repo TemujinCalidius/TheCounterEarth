@@ -1,6 +1,7 @@
 -- LoadingScreen.client.luau
 -- Black overlay with "Loading..." text. Dismissed when the server fires ScatterReady.
 
+local ContentProvider   = game:GetService("ContentProvider")
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService      = game:GetService("TweenService")
@@ -83,6 +84,50 @@ task.spawn(function()
 		msgIndex = (msgIndex % #STATUS_MESSAGES) + 1
 		statusLabel.Text = STATUS_MESSAGES[msgIndex]
 		task.wait(2)
+	end
+end)
+
+-- ── Preload assets while world spawns ────────────────────────────────────
+
+local AssetIds = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
+
+local preloadIds: { Instance } = {}
+-- Collect all sound and image asset IDs for preloading
+for sectionName, section in AssetIds do
+	if type(section) == "table" then
+		for _, assetId in section do
+			if type(assetId) == "string" and assetId ~= "" then
+				-- Use appropriate instance type for preloading
+				if sectionName == "Sounds" then
+					local s = Instance.new("Sound")
+					s.SoundId = assetId
+					table.insert(preloadIds, s)
+				else
+					local d = Instance.new("Decal")
+					d.Texture = assetId
+					table.insert(preloadIds, d)
+				end
+			end
+		end
+	end
+end
+
+-- Also preload deer ambient + death sounds
+for _, soundId in {
+	"rbxassetid://126885307258010",  -- deer ambient call
+	"rbxassetid://134371029717438",  -- deer death cry
+	"rbxassetid://111970753008354",  -- bow fire twang
+} do
+	local s = Instance.new("Sound")
+	s.SoundId = soundId
+	table.insert(preloadIds, s)
+end
+
+task.spawn(function()
+	ContentProvider:PreloadAsync(preloadIds)
+	-- Clean up temporary instances
+	for _, inst in preloadIds do
+		inst:Destroy()
 	end
 end)
 

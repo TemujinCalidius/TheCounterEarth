@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.22.2] - Bow & arrow meshes, deer death sound, asset preloading
+
+### Added
+- **Primitive bow mesh** — replaces placeholder model, grip CFrame configured in ItemRegistry
+- **Stone arrow mesh** — projectile cloned from ScatterModels template, oriented along flight direction
+- **Nocked arrow visual** — arrow appears on bow during draw, removed on fire or aim exit
+- **Bow fire sound** — positional twang sound plays when arrow is released
+- **Deer death sound** — positional death cry plays when deer is killed
+- **Asset preloading** — all sounds, images, and textures from AssetIds preloaded during loading screen via ContentProvider
+
+---
+
 ## [0.22.1] - Deer mesh, carcass models, and ambient sounds
 
 ### Added
