@@ -12,7 +12,8 @@ local RunService         = game:GetService("RunService")
 local Workspace          = game:GetService("Workspace")
 
 local GameplayConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameplayConfig"))
-local EventBridge    = require(script.Parent:WaitForChild("EventBridge"))
+local ServerScriptService = game:GetService("ServerScriptService")
+local EventBridge    = require(ServerScriptService:WaitForChild("Shared"):WaitForChild("EventBridge"))
 
 local animalCfg = GameplayConfig.Animal or {}
 local DEER_HEALTH        = animalCfg.DeerHealth or 30

@@ -1,0 +1,50 @@
+{
+  "name": "Hospital",
+  "servePort": 34873,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Config": {
+        "$path": "src/shared/config"
+      },
+      "TooltipModule": {
+        "$path": "src/shared/modules/TooltipModule.luau"
+      }
+    },
+    "ServerScriptService": {
+      "Shared": {
+        "$path": "src/shared/server"
+      },
+      "Place": {
+        "$path": "src/places/hospital/server"
+      }
+    },
+    "ServerStorage": {
+      "$path": "src/ServerStorage",
+      "$ignoreUnknownInstances": true
+    },
+    "StarterPlayer": {
+      "StarterCharacterScripts": {
+        "$path": "src/shared/character",
+        "$ignoreUnknownInstances": true
+      },
+      "StarterPlayerScripts": {
+        "Shared": {
+          "$path": "src/shared/client"
+        },
+        "Place": {
+          "$path": "src/places/hospital/client"
+        }
+      }
+    },
+    "StarterGui": {
+      "$path": "src/gui"
+    },
+    "SoundService": {
+      "$path": "src/sound"
+    },
+    "Workspace": {
+      "$ignoreUnknownInstances": true
+    }
+  }
+}
