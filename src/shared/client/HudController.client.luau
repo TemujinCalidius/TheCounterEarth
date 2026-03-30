@@ -102,6 +102,7 @@ local AssetIds      = require(ReplicatedStorage:WaitForChild("Config"):WaitForCh
 local StatsConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("StatsConfig"))
 local ItemRegistry  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local TooltipModule = require(ReplicatedStorage:WaitForChild("TooltipModule"))
+local PanelManager  = require(script.Parent:WaitForChild("PanelManager"))
 
 local remotesFolder           = ReplicatedStorage:WaitForChild("Remotes")
 local sprintIntentRemote      = remotesFolder:WaitForChild("SprintIntent")
@@ -204,6 +205,7 @@ local function configureCoreGui()
 		for _ = 1, 10 do
 			pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false) end)
 			pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false) end)
+			pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false) end)
 			task.wait(1)
 		end
 	end)
@@ -876,6 +878,167 @@ for slot = 1, hotbarSlotCount do
 		durBarFill   = durBarFill,
 	}
 end
+
+-- ---------------------------------------------------------------------------
+-- HUD Button Bar (Inventory / Character / Achievements / Codex)
+-- ---------------------------------------------------------------------------
+
+local buttonBarConfig = Config.HUD.ButtonBar
+local btnSize   = if isMobile then buttonBarConfig.ButtonSizeMobile else buttonBarConfig.ButtonSize
+local btnGap    = buttonBarConfig.ButtonSpacing
+local accents   = buttonBarConfig.AccentColors
+
+-- Button definitions: order matches visual layout (left-to-right on desktop)
+local BUTTON_DEFS = {
+	{ name = "inventory",    label = "Inventory (Tab)",    accent = accents.Inventory,    icon = AssetIds.Images.InventoryIcon    or "" },
+	{ name = "character",    label = "Character (C)",      accent = accents.Character,    icon = AssetIds.Images.CharacterIcon    or "" },
+	{ name = "achievements", label = "Achievements (J)",   accent = accents.Achievements, icon = AssetIds.Images.AchievementsIcon or "" },
+	{ name = "codex",        label = "Codex (K)",          accent = accents.Codex,        icon = AssetIds.Images.CodexIcon        or "" },
+}
+
+-- Fallback text labels if icons are not yet uploaded
+local BUTTON_FALLBACK = {
+	inventory    = "INV",
+	character    = "CHR",
+	achievements = "ACH",
+	codex        = "COD",
+}
+
+local buttonBarRoot = Instance.new("Frame")
+buttonBarRoot.Name = "ButtonBarRoot"
+buttonBarRoot.BackgroundTransparency = 1
+buttonBarRoot.BorderSizePixel = 0
+
+if isMobile then
+	-- Vertical strip on right edge, above sprint/jump
+	local totalH = (#BUTTON_DEFS * btnSize) + ((#BUTTON_DEFS - 1) * btnGap)
+	buttonBarRoot.Size = UDim2.fromOffset(btnSize, totalH)
+	buttonBarRoot.AnchorPoint = Vector2.new(1, 1)
+	buttonBarRoot.Position = UDim2.new(1, -12, 1, -180) -- above sprint/jump
+
+	local list = Instance.new("UIListLayout")
+	list.FillDirection = Enum.FillDirection.Vertical
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	list.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, btnGap)
+	list.Parent = buttonBarRoot
+else
+	-- Vertical strip on the right edge, above hotbar
+	local totalH = (#BUTTON_DEFS * btnSize) + ((#BUTTON_DEFS - 1) * btnGap)
+	buttonBarRoot.Size = UDim2.fromOffset(btnSize, totalH)
+	buttonBarRoot.AnchorPoint = Vector2.new(1, 1)
+	buttonBarRoot.Position = UDim2.new(1, -12, 1, -100) -- right edge, above hotbar
+
+	local list = Instance.new("UIListLayout")
+	list.FillDirection = Enum.FillDirection.Vertical
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	list.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, btnGap)
+	list.Parent = buttonBarRoot
+end
+
+buttonBarRoot.Parent = hud
+
+-- Build each button
+local hudButtons: { [string]: { frame: ImageButton, stroke: UIStroke } } = {}
+
+for i, def in ipairs(BUTTON_DEFS) do
+	local btn = Instance.new("ImageButton")
+	btn.Name = "Btn_" .. def.name
+	btn.Size = UDim2.fromOffset(btnSize, btnSize)
+	btn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+	btn.BackgroundTransparency = 0.6
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.LayoutOrder = i
+	btn.Image = ""
+
+	createRoundedCorner(btn, UDim.new(0, 8))
+
+	-- Accent stroke (hidden by default, shown when panel is active)
+	local stroke = Instance.new("UIStroke")
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Thickness = 1
+	stroke.Color = def.accent
+	stroke.Transparency = 1 -- hidden
+	stroke.Parent = btn
+
+	-- Icon image (or fallback text)
+	if def.icon ~= "" then
+		local ico = Instance.new("ImageLabel")
+		ico.Name = "Icon"
+		ico.Size = UDim2.new(0.8, 0, 0.8, 0)
+		ico.Position = UDim2.new(0.5, 0, 0.5, 0)
+		ico.AnchorPoint = Vector2.new(0.5, 0.5)
+		ico.BackgroundTransparency = 1
+		ico.Image = def.icon
+		ico.ImageTransparency = 0.1
+		ico.ImageColor3 = Color3.new(1, 1, 1)
+		ico.Parent = btn
+	else
+		local lbl = Instance.new("TextLabel")
+		lbl.Name = "FallbackLabel"
+		lbl.Size = UDim2.new(1, 0, 1, 0)
+		lbl.BackgroundTransparency = 1
+		lbl.Text = BUTTON_FALLBACK[def.name] or "?"
+		lbl.TextColor3 = Color3.fromRGB(220, 230, 240)
+		lbl.TextSize = 12
+		lbl.Font = Enum.Font.GothamBold
+		lbl.Parent = btn
+	end
+
+	-- Hover effects
+	btn.MouseEnter:Connect(function()
+		if PanelManager.getActive() ~= def.name then
+			btn.BackgroundTransparency = 0.4
+			local ico = btn:FindFirstChild("Icon")
+			if ico and ico:IsA("ImageLabel") then
+				ico.ImageTransparency = 0
+			end
+		end
+	end)
+
+	btn.MouseLeave:Connect(function()
+		if PanelManager.getActive() ~= def.name then
+			btn.BackgroundTransparency = 0.6
+			local ico = btn:FindFirstChild("Icon")
+			if ico and ico:IsA("ImageLabel") then
+				ico.ImageTransparency = 0.1
+			end
+		end
+	end)
+
+	-- Click → toggle panel
+	btn.Activated:Connect(function()
+		PanelManager.toggle(def.name)
+	end)
+
+	btn.Parent = buttonBarRoot
+	hudButtons[def.name] = { frame = btn, stroke = stroke }
+end
+
+-- Update button visuals when active panel changes
+PanelManager.onActiveChanged(function(activeName: string?)
+	for name, refs in pairs(hudButtons) do
+		if name == activeName then
+			refs.frame.BackgroundTransparency = 0.3
+			refs.stroke.Transparency = 0
+			local ico = refs.frame:FindFirstChild("Icon")
+			if ico and ico:IsA("ImageLabel") then
+				ico.ImageTransparency = 0
+			end
+		else
+			refs.frame.BackgroundTransparency = 0.6
+			refs.stroke.Transparency = 1
+			local ico = refs.frame:FindFirstChild("Icon")
+			if ico and ico:IsA("ImageLabel") then
+				ico.ImageTransparency = 0.1
+			end
+		end
+	end
+end)
 
 -- ---------------------------------------------------------------------------
 -- Audio
@@ -3120,6 +3283,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			closeLootBagPanel()
 		elseif cookingPanel and cookingPanel.Visible then
 			closeCookingPanel()
+		elseif PanelManager.isAnyOpen() then
+			PanelManager.close()
 		end
 	end
 end)

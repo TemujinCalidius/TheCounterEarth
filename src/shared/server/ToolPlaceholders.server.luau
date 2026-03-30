@@ -56,6 +56,16 @@ local PLACEHOLDERS = {
 		headOffset  = Vector3.new(0, 0, -2.6),
 	},
 	{
+		name = "crowbar",
+		-- Metal bar
+		handleSize  = Vector3.new(0.25, 0.25, 3.0),
+		handleColor = Color3.fromRGB(80, 80, 85),
+		-- Curved end
+		headSize    = Vector3.new(0.25, 0.6, 0.4),
+		headColor   = Color3.fromRGB(80, 80, 85),
+		headOffset  = Vector3.new(0, 0.2, -1.4),
+	},
+	{
 		name = "primitive_bow",
 		-- Curved stave (bow body)
 		handleSize  = Vector3.new(0.15, 0.15, 3.0),

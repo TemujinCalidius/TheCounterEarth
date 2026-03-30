@@ -2,41 +2,77 @@
 
 ## Project Structure
 
+The codebase uses a **multi-place architecture**. Shared core code lives in `src/shared/` and is included by every place via Rojo project files. Per-place scripts live in `src/places/<place>/`.
+
 ```
 src/
-├── ReplicatedStorage/Config/       -- Shared configuration (client + server)
-│   ├── GameplayConfig.luau         -- Energy, movement, health, credits, hotbar, inventory
-│   ├── StatsConfig.luau            -- Hunger, thirst, fatigue, blood bar, poison bar
-│   ├── ItemRegistry.luau           -- Item definitions (weight, stackMax, category, etc.)
-│   ├── CraftingConfig.luau         -- Hand-craft recipes (station="hand")
-│   ├── CookingConfig.luau          -- Campfire cooking recipes (raw → cooked)
-│   ├── AssetIds.luau               -- rbxassetid:// mappings for images and sounds
-│   ├── InventoryTypes.luau         -- Shared type definitions
-│   └── AchievementConfig.luau      -- 53 achievements, counters, event mappings
+├── shared/                              -- Core code shared across all places
+│   ├── config/                          -- Shared configuration (client + server)
+│   │   ├── GameplayConfig.luau          -- Energy, movement, health, credits, hotbar, inventory
+│   │   ├── StatsConfig.luau             -- Hunger, thirst, fatigue, blood bar, poison bar
+│   │   ├── ItemRegistry.luau            -- Item definitions (weight, stackMax, category, etc.)
+│   │   ├── CraftingConfig.luau          -- Hand-craft recipes (station="hand")
+│   │   ├── CookingConfig.luau           -- Campfire cooking recipes (raw → cooked)
+│   │   ├── AchievementConfig.luau       -- Achievement definitions, counters, event mappings
+│   │   ├── LoreConfig.luau             -- Lore entry definitions (title, body, category, trigger)
+│   │   ├── AssetIds.luau                -- rbxassetid:// mappings for images and sounds
+│   │   └── InventoryTypes.luau          -- Shared type definitions
+│   │
+│   ├── server/                          -- Server-only scripts (all places)
+│   │   ├── PlayerStateService.server.luau    -- Player lifecycle, energy, sprint, survival stats, DataStore
+│   │   ├── InventoryService.server.luau      -- Slot-based inventory, crafting, hotbar pinning, loot bags
+│   │   ├── CampfireService.server.luau       -- Campfire cooking: per-campfire inventory, cook ticks, state sync
+│   │   ├── ToolInventoryService.server.luau  -- World tool pickup, equip/unequip, tool templates
+│   │   ├── CombatService.server.luau         -- Weapon-only melee attacks, target search
+│   │   ├── BowService.server.luau            -- Ranged bow combat, draw scaling, arrow physics
+│   │   ├── ButcherService.server.luau        -- Carcass skinning and butchering
+│   │   ├── ZombieService.server.luau         -- Hostile NPC AI, zone spawning, combat
+│   │   ├── TradingService.server.luau        -- Player-to-player trading
+│   │   ├── PlayerInspectService.server.luau  -- Player inspect: profile data on request
+│   │   ├── ToolPlaceholders.server.luau      -- Runtime placeholder Tool models (until Studio meshes exist)
+│   │   ├── AvatarRigService.server.luau      -- RightHand Motor6D for tool attachment
+│   │   ├── AchievementService.server.luau    -- Achievement tracking, counters, unlocks, login streaks
+│   │   ├── LoreService.server.luau          -- Lore discovery tracking, DataStore persistence
+│   │   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher (+ onFire hook)
+│   │   ├── EventBridgeWorker.server.luau     -- Flush loop + init for EventBridge
+│   │   └── WaterWell.server.luau             -- Water well thirst refill
+│   │
+│   ├── client/                          -- Client scripts (all places)
+│   │   ├── HudController.client.luau         -- HUD rendering, hotbar display, button bar, campfire cooking UI
+│   │   ├── PanelManager.luau                 -- ModuleScript: panel mutual exclusivity, animations, mouse unlock
+│   │   ├── InventoryController.client.luau   -- Inventory panel (ITEMS + RECIPES tabs), drag-and-drop
+│   │   ├── CharacterPanelController.client.luau  -- Character panel (equipment slots, RPG stats)
+│   │   ├── AchievementPanelController.client.luau -- Achievement panel (category filter, progress grid)
+│   │   ├── CodexController.client.luau       -- Codex panel (lore entry browser with categories)
+│   │   ├── LoreToastController.client.luau   -- Lore discovery toast notifications
+│   │   ├── PlacementController.client.luau   -- Ghost preview placement mode for placeables
+│   │   ├── BowController.client.luau         -- Bow aiming, draw UI, crosshair, mobile buttons
+│   │   ├── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
+│   │   ├── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
+│   │   ├── BoneTracker.client.luau           -- Tracks hand bones for all characters (local + remote)
+│   │   ├── LoadingScreen.client.luau         -- Loading screen with scatter-ready fade
+│   │   └── AchievementToastController.client.luau -- Achievement unlock toast notifications
+│   │
+│   ├── character/                       -- Character scripts (all places)
+│   │   └── AvatarSetup.client.luau      -- HipHeight, drift correction, freefall suppression
+│   │
+│   └── modules/                         -- Shared modules
+│       └── TooltipModule.luau           -- Tooltip rendering
 │
-├── ServerScriptService/            -- Server-only scripts
-│   ├── PlayerStateService.server.luau    -- Player lifecycle, energy, sprint, survival stats, DataStore
-│   ├── InventoryService.server.luau      -- Slot-based inventory, crafting, hotbar pinning, loot bags
-│   ├── CampfireService.server.luau       -- Campfire cooking: per-campfire inventory, cook ticks, state sync
-│   ├── ToolInventoryService.server.luau  -- World tool pickup, equip/unequip, tool templates
-│   ├── ScatterSpawnService.server.luau   -- Scatter item spawning in the world
-│   ├── TradingService.server.luau        -- Player-to-player trading
-│   ├── PlayerInspectService.server.luau  -- Player inspect: profile data on request
-│   ├── TreeService.server.luau                -- Tree lifecycle: fell, stump, trunk, cut points, regrowth
-│   ├── ToolPlaceholders.server.luau           -- Runtime placeholder Tool models (until Studio meshes exist)
-│   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher (+ onFire hook)
-│   ├── EventBridgeWorker.server.luau     -- Flush loop + init for EventBridge
-│   └── AchievementService.server.luau    -- Achievement tracking, counters, unlocks, login streaks
-│
-├── StarterPlayer/StarterPlayerScripts/   -- Client scripts
-│   ├── HudController.client.luau         -- HUD rendering, hotbar display, campfire cooking UI
-│   ├── InventoryController.client.luau   -- Inventory panel, recipe book, drag-and-drop
-│   ├── PlacementController.client.luau   -- Ghost preview placement mode for placeables
-│   ├── GatherController.client.luau      -- Hit-to-harvest feedback (shake, sound, animation, floating text)
-│   ├── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
-│   ├── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
-│   ├── BoneTracker.client.luau          -- Tracks hand bones for all characters (local + remote)
-│   └── AchievementToastController.client.luau -- Achievement unlock toast notifications
+├── places/                              -- Per-place scripts
+│   ├── sandbox/                         -- Open-world sandbox
+│   │   ├── server/
+│   │   │   ├── ScatterSpawnService.server.luau   -- Scatter item spawning in ScatterZones
+│   │   │   ├── AnimalService.server.luau         -- Deer AI (idle/wander/flee/dead)
+│   │   │   └── TreeService.server.luau           -- Tree lifecycle: fell, stump, trunk, regrowth
+│   │   └── client/
+│   │       └── GatherController.client.luau      -- Hit-to-harvest feedback (shake, sound, animation)
+│   │
+│   └── hospital/                        -- Hospital tutorial place
+│       ├── server/
+│       │   └── PlaceInit.server.luau             -- Fires ScatterReady for loading screen
+│       └── client/
+│           └── FirstPersonCamera.client.luau     -- First-person camera lock + crosshair UI
 │
 assets/
 ├── raw/
@@ -48,8 +84,10 @@ assets/
 
 ## Sync Setup
 
-- **Rojo 7.6.1** syncs `src/` to Roblox Studio via `default.project.json`
-- Binary: `tools/rojo-7.6.1/rojo serve default.project.json`
+- **Rojo 7.6.1** syncs `src/` to Roblox Studio via per-place project files
+- **Sandbox:** `tools/rojo-7.6.1/rojo serve sandbox.project.json`
+- **Hospital:** `tools/rojo-7.6.1/rojo serve hospital.project.json`
+- Stop one before starting the other (they share the default port 34872)
 - Studio plugin must match version 7.6.1
 - `assets/raw/` is NOT synced — local-only reference files and documentation
 
@@ -78,9 +116,9 @@ The central server authority for player data. Owns the `Remotes` folder.
 
 **DataStore:**
 - Store name: `PlayerProfileV2`, key format: `player_{userId}`
-- Profile version: 5
+- Profile version: 7
 - Auto-saves every 60s when dirty, force-saves on leave and BindToClose
-- Saves: credits, energy, health, hunger, thirst, fatigue, blood, poison, bleed stacks, active effect flags, hotbar inventory, slot-based inventory, per-item expiry timestamps, last position
+- Saves: credits, energy, health, hunger, thirst, fatigue, blood, poison, bleed stacks, active effect flags, hotbar inventory, slot-based inventory, per-item expiry timestamps, last position, achievements, discoveredLore
 - `lastPosition` saved as `{x,y,z}` from HumanoidRootPart on save; used for relog teleport (one-time)
 - `invSlots[].expiries` saved as array of `os.time()` timestamps per slot
 
@@ -312,6 +350,12 @@ Client-side UI rendering.
 - Icons from AssetIds with fallback text
 - Disables default Roblox health bar and backpack GUI
 
+**Button Bar (right edge, vertical):**
+- 4 buttons: Inventory, Character, Achievements, Codex
+- Per-panel accent colors, hover/active states, 80% icon fill
+- Desktop: vertical strip above hotbar on right edge; Mobile: adapted layout
+- Each button toggles its panel via PanelManager
+
 **Hotbar (bottom-center):**
 - 9 slots (keys 1-9), reads `HotbarSlot1`–`HotbarSlot9` attributes
 - Active slot highlighted based on `HotbarEquippedSlot` attribute
@@ -325,11 +369,23 @@ Client-side UI rendering.
 **Visual Effects:**
 - Vignette overlay: opacity increases as energy drops (darkens screen edges)
 
-### 11. Inventory Controller (InventoryController)
+### 11. Panel Manager (PanelManager)
 
-Client-side inventory panel with drag-and-drop.
+Shared ModuleScript that coordinates all full-screen panels.
 
-**Tabs:** ITEMS | RECIPES | CHARACTER
+**Responsibilities:**
+- Mutual exclusivity: only one panel open at a time (opening one closes others)
+- Open/close animations (slide or fade)
+- Mouse unlock in first-person mode when a panel is open
+- Crosshair hiding while panels are visible
+- Click-outside-to-close behavior
+- Registered panels: Inventory, Character, Achievements, Codex
+
+### 12. Inventory Panel (InventoryController)
+
+Client-side inventory panel with drag-and-drop. Registered with PanelManager.
+
+**Tabs:** ITEMS | RECIPES
 
 **ITEMS tab:** Grid display of inventory slots, detail panel with USE/PLACE/HOTBAR/SPLIT/DROP actions.
 
@@ -339,14 +395,55 @@ Client-side inventory panel with drag-and-drop.
 - Station recipes: read-only with input → output + cook time display
 - Station badges: HAND (blue) / CAMPFIRE (orange) on each row
 
-**CHARACTER tab:** Equipment slots and RPG stat block.
-
 **Drag-and-Drop:**
 - Inventory slot → Hotbar slot: fires `PinToSpecificSlot` with target slot number
 - Inventory slot → Inventory slot: fires `SwapSlots`
 - Inventory slot → Campfire input slot: fires `CampfireAddItem` (cross-ScreenGui via ObjectValue ref)
 - Inventory slot → empty space: fires `DropItem` (drops to world)
 - Visual ghost icon follows cursor during drag
+
+### 13. Character Panel (CharacterPanelController)
+
+Dedicated panel for equipment and RPG stats. Registered with PanelManager.
+
+**Contents:**
+- Equipment slots (head, chest, legs, feet, weapon, offhand)
+- RPG stat block (STR, AGI, CON, WIS, INT, CHA)
+- Previously the CHARACTER tab inside InventoryController; now its own panel
+
+### 14. Achievement Panel (AchievementPanelController)
+
+Dedicated panel for achievement browsing. Registered with PanelManager.
+
+**Contents:**
+- Category filter bar (ALL + per-category buttons)
+- Scrollable grid of achievement cards with icon, name, progress bar (e.g. "5/10"), green check for unlocked
+- Previously the ACHIEVEMENTS tab inside InventoryController; now its own panel
+
+### 15. Codex & Lore System
+
+Lore discovery and browsing system. Player finds lore entries through exploration; entries persist in DataStore.
+
+**Server (`LoreService.server.luau`):**
+- Tracks discovered lore per player in `discoveredLore` set (DataStore profile v7)
+- `DiscoverLore` RemoteEvent: client or server triggers discovery
+- `LoreDiscovered` RemoteEvent: server confirms discovery to client (triggers toast)
+- `GetDiscoveredLore` RemoteFunction: client requests full discovered set on join
+- Fires `lore_discovered` event via EventBridge
+
+**Config (`LoreConfig.luau`):**
+- Lore entry definitions: key, title, body text, category, area, optional trigger conditions
+- Categories group entries for Codex browsing (e.g. Environment, Characters, Events)
+
+**Client (`CodexController.client.luau`):**
+- Codex panel registered with PanelManager
+- Category sidebar + entry list + detail view
+- Undiscovered entries shown as locked/greyed out
+- Discovered entries show full title and body text
+
+**Client (`LoreToastController.client.luau`):**
+- Toast notification on lore discovery (slides in, holds, fades out)
+- Similar pattern to AchievementToastController
 
 ---
 
@@ -413,7 +510,7 @@ Single-mesh Mixamo avatars need special handling for tool attachment since stand
 
 **Client (`BoneTracker.client.luau`):** Runs on each client, tracking the `mixamorig:RightHand` bone inside the `Base_Avatar` MeshPart for ALL visible characters (local + remote). Updates `Motor6D.C0` every `PreRender` frame so equipped tools follow the hand animation with zero visual lag.
 
-**Client (`AvatarSetup.client.luau`):** Local-player-only setup: HipHeight adjustment and jump freefall suppression for single-mesh avatars.
+**Client (`AvatarSetup.client.luau`):** Local-player-only setup: HipHeight adjustment, movement drift correction (max friction + active sideways velocity dampening to eliminate ice-skating on direction changes), and jump freefall suppression for single-mesh avatars.
 
 **Config:** `GameplayConfig.Avatar` — `HandBoneName`, `MeshPartName`, `HipHeight`
 
@@ -427,7 +524,6 @@ Pushes game events to the external website/Discord bot via HttpService.
 - `EventBridge.fire(eventType, player?, data?)` — fire-and-forget from any server script
 - Immediate events (death, trade, join, leave) send instantly via `task.spawn`
 - Batched events (craft, harvest, cook, consume) queue and flush every 5s
-- Events include `profession` and `xpGained` fields for the website's XP system
 - All HTTP calls wrapped in `pcall` — failures never break gameplay
 - API key read from `ServerStorage.Secrets.WebHookApiKey` (not in git)
 - Disabled in Studio by default (`EnableInStudio = false`)
@@ -446,9 +542,9 @@ Pushes game events to the external website/Discord bot via HttpService.
 | `player_leave` | PlayerStateService | Immediate | survivalSeconds, playerCount |
 | `player_death` | PlayerStateService | Immediate | cause, killerUserId, killerName, survivalSeconds, position |
 | `trade_complete` | TradingService | Immediate | offerA/offerB with itemName, partnerUserId |
-| `craft_complete` | InventoryService | Batched | profession=crafting, itemId, itemName, xpGained |
-| `harvest_complete` | InventoryService | Batched | profession from item tags, itemId, itemName, xpGained |
-| `cook_complete` | CampfireService | Batched | profession=cooking, itemId, itemName, xpGained |
+| `craft_complete` | InventoryService | Batched | itemId, itemName |
+| `harvest_complete` | InventoryService | Batched | itemId, itemName |
+| `cook_complete` | CampfireService | Batched | itemId, itemName |
 | `item_consume` | InventoryService | Batched | itemId |
 | `item_dropped` | InventoryService | Batched | itemId, qty |
 | `tool_broken` | InventoryService | Batched | itemId, itemName |
@@ -460,6 +556,7 @@ Pushes game events to the external website/Discord bot via HttpService.
 | `starvation_close_call` | PlayerStateService | Batched | stat (hunger/thirst) |
 | `campfire_session` | PlayerStateService | Batched | nearbyPlayers |
 | `achievement_unlocked` | AchievementService | Immediate | key, name, icon, category, counterValue, totalUnlocked, totalAchievements |
+| `lore_discovered` | LoreService | Immediate | loreKey, title, category, area, totalDiscovered |
 
 **PvP damage tagging:** Weapon scripts should fire `ServerBindables.PvPDamageTag:Fire(victimPlayer, attackerPlayer)` when dealing damage. This tags the victim so `player_death` includes killer info.
 
@@ -469,7 +566,7 @@ Pushes game events to the external website/Discord bot via HttpService.
 
 ## Achievement System
 
-53 achievements across 17 categories tracked in-game. The game is the single source of truth — the web/Discord listens for `achievement_unlocked` events.
+Event-driven achievement tracking. The game is the single source of truth — the web/Discord listens for `achievement_unlocked` events. Achievement definitions live in `AchievementConfig.luau`.
 
 **Server (`AchievementService.server.luau`):**
 - Registers `EventBridge.onFire` hook to auto-increment counters from existing game events (no changes to source scripts needed)
@@ -480,15 +577,15 @@ Pushes game events to the external website/Discord bot via HttpService.
 - Credits peak: watches `Credits` attribute changes, stores highest-ever value
 - BindableFunctions (`AchievementLoad`/`AchievementSave`/`AchievementGetState`) for PlayerStateService integration
 
-**Config (`AchievementConfig.luau`):** Shared between server and client. Defines all achievements (key, name, icon, category, counter, threshold), counter names, event-to-counter mappings with conditions, and lookup tables (ByCounter, ByKey).
+**Config (`AchievementConfig.luau`):** Shared between server and client. Defines achievements (key, name, icon, category, counter, threshold, optional `badgeId` for Roblox Badge integration), counter names, event-to-counter mappings with conditions, and lookup tables (ByCounter, ByKey).
 
-**DataStore (profile v6):** `achievements = { counters = {}, unlocked = { key → timestamp }, loginStreak = { lastLoginDate, currentStreak, longestStreak } }`. ~2-3KB added per profile.
+**DataStore (profile v7):** `achievements = { counters = {}, unlocked = { key → timestamp }, loginStreak = { lastLoginDate, currentStreak, longestStreak } }`. ~2-3KB added per profile. Also stores `discoveredLore` set for lore system.
 
 **Client toast (`AchievementToastController.client.luau`):** Gold-accented 300×70px frame slides in from top-right on unlock, holds 4s, fades out. Queue system for multiple unlocks.
 
-**Inventory ACHIEVEMENTS tab:** 4th tab in InventoryController with category filter bar and scrollable grid of 53 achievement cards showing icon, name, progress (e.g. "5/10"), and green check for unlocked.
+**Achievement Panel (`AchievementPanelController.client.luau`):** Dedicated panel (registered with PanelManager) with category filter bar and scrollable grid of achievement cards showing icon, name, progress (e.g. "5/10"), and green check for unlocked.
 
-**Inspect panel:** Shows "X/53 — Most Recent Achievement" row on other players' inspect cards.
+**Inspect panel:** Shows "X/N — Most Recent Achievement" row on other players' inspect cards.
 
 ---
 

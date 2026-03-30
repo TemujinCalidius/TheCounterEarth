@@ -466,6 +466,26 @@ Items.pack_leather = {
 -- WEAPONS — dedicated combat items, NOT harvest tools
 -- ---------------------------------------------------------------------------
 
+Items.crowbar = {
+	id = "crowbar",
+	displayName = "Crowbar",
+	description = "A sturdy metal crowbar. Effective as an improvised weapon.",
+	stackMax = 1,
+	weight = 1.2,
+	slotSize = { w = 1, h = 2 },
+	category = "weapon",
+	durabilityMax = 80,
+	weapon = {
+		kind = "spear", -- uses melee combat system
+		tier = 1,
+		damage = 18,
+		attackCooldown = 0.9,
+		attackRange = 6,
+	},
+	tags = { "weapon", "melee", "tier1", "hospital" },
+	icon = "",
+}
+
 Items.stone_spear = {
 	id = "stone_spear",
 	displayName = "Stone Spear",

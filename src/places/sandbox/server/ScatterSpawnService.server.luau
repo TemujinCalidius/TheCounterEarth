@@ -744,26 +744,44 @@ for _, cfg in ipairs(SCATTER) do
 	counts[cfg.itemId] = 0
 end
 
+-- Per-config spawn key: uses first template name if available, otherwise itemId.
+-- This allows multiple configs sharing the same itemId (e.g. boulder variants)
+-- to track counts and failures independently.
+local function spawnKey(cfg: ScatterDef): string
+	if cfg.templates and #cfg.templates > 0 then
+		return cfg.templates[1]
+	end
+	return cfg.itemId
+end
+
 -- Forward declaration required for self-reference inside the closure.
 local spawnOne: (ScatterDef) -> ()
 
+local spawnCounts: { [string]: number } = {}
 local spawnFailures: { [string]: number } = {}
 
 spawnOne = function(cfg: ScatterDef)
-	if counts[cfg.itemId] >= cfg.maxCount then return end
+	local key = spawnKey(cfg)
+	if (spawnCounts[key] or 0) >= cfg.maxCount then return end
 
 	local model = createScatterModel(cfg)
 	if not model then
 		-- No valid position found; retry shortly.
-		local fails = (spawnFailures[cfg.itemId] or 0) + 1
-		spawnFailures[cfg.itemId] = fails
+		local fails = (spawnFailures[key] or 0) + 1
+		spawnFailures[key] = fails
 		if fails % 20 == 0 then
-			warn(("[ScatterSpawn] %s: %d consecutive spawn failures"):format(cfg.itemId, fails))
+			warn(("[ScatterSpawn] %s: %d consecutive spawn failures"):format(key, fails))
+		end
+		if fails >= 200 then
+			warn(("[ScatterSpawn] %s: giving up after %d failures (spawned %d/%d)"):format(
+				key, fails, spawnCounts[key] or 0, cfg.maxCount))
+			return
 		end
 		task.delay(0.5, function() spawnOne(cfg) end)
 		return
 	end
-	spawnFailures[cfg.itemId] = 0
+	spawnFailures[key] = 0
+	spawnCounts[key] = (spawnCounts[key] or 0) + 1
 	counts[cfg.itemId] += 1
 
 	-- Trees are managed by TreeService (fell → stump → regrow); skip auto-respawn.
@@ -772,6 +790,8 @@ spawnOne = function(cfg: ScatterDef)
 	-- When the model is removed (picked up or destroyed), schedule a respawn.
 	model.AncestryChanged:Connect(function()
 		if not model.Parent then
+			local key2 = spawnKey(cfg)
+			spawnCounts[key2] = math.max(0, (spawnCounts[key2] or 0) - 1)
 			counts[cfg.itemId] = math.max(0, counts[cfg.itemId] - 1)
 			local delay = cfg.respawnMin + math.random() * (cfg.respawnMax - cfg.respawnMin)
 			task.delay(delay, function()
@@ -813,7 +833,7 @@ local BATCH_SIZE = 5 -- items per frame during initial population
 local function populatePhase(cfgs: { ScatterDef }, onComplete: (() -> ())?)
 	local queue: { ScatterDef } = {}
 	for _, cfg in ipairs(cfgs) do
-		local remaining = cfg.maxCount - (counts[cfg.itemId] or 0)
+		local remaining = cfg.maxCount - (spawnCounts[spawnKey(cfg)] or 0)
 		for _ = 1, remaining do
 			table.insert(queue, cfg)
 		end

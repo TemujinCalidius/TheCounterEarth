@@ -10,7 +10,7 @@ local StatsConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChil
 local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local EventBridge  = require(script.Parent:WaitForChild("EventBridge"))
 
-local PROFILE_VERSION = 6
+local PROFILE_VERSION = 7
 local LEGACY_CREDITS_STORE_NAME = "CreditsV1"
 
 local useDataStore = (not RunService:IsStudio()) or Config.Credits.UseDataStoreInStudio
@@ -474,6 +474,7 @@ local function decodeProfile(raw: any): { [string]: any }?
 		survivalSeconds = tonumber(raw.survivalSeconds) or 0,
 		uiPositions = if type(raw.uiPositions) == "table" then raw.uiPositions else {},
 		achievements = if type(raw.achievements) == "table" then raw.achievements else nil,
+		discoveredLore = if type(raw.discoveredLore) == "table" then raw.discoveredLore else {},
 		equippedBackpack = if type(raw.equippedBackpack) == "string" then raw.equippedBackpack else nil,
 		equippedQuiver = if type(raw.equippedQuiver) == "string" then raw.equippedQuiver else nil,
 	}
@@ -921,6 +922,14 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 			end
 			return nil
 		end)(),
+		discoveredLore = (function()
+			local loreSave = bindablesFolder:FindFirstChild("LoreSave")
+			if loreSave and loreSave:IsA("BindableFunction") then
+				local ok, result = pcall(loreSave.Invoke, loreSave, player)
+				if ok and type(result) == "table" then return result end
+			end
+			return {}
+		end)(),
 	}
 end
 
@@ -1266,6 +1275,12 @@ local function setupPlayer(player: Player)
 	local achLoad = bindablesFolder:FindFirstChild("AchievementLoad")
 	if achLoad and achLoad:IsA("BindableFunction") then
 		pcall(achLoad.Invoke, achLoad, player, profile.achievements)
+	end
+
+	-- Load discovered lore into LoreService
+	local loreLoad = bindablesFolder:FindFirstChild("LoreLoad")
+	if loreLoad and loreLoad:IsA("BindableFunction") then
+		pcall(loreLoad.Invoke, loreLoad, player, profile.discoveredLore)
 	end
 
 	writeInventoryAttributes(player, decodeInventory(profile.inventory))

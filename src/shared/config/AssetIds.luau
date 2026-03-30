@@ -49,6 +49,10 @@ return {
 		RawCrudeHideIcon = "rbxassetid://107005747439288",
 		BoneIcon = "rbxassetid://97098993686201",
 		SinewIcon = "rbxassetid://140168506179991",
+		InventoryIcon = "rbxassetid://126899685861202",
+		CharacterIcon = "rbxassetid://101021753872771",
+		AchievementsIcon = "rbxassetid://118209847025041",
+		CodexIcon = "rbxassetid://118056054146060",
 	},
 	UITextures = {
 		PanelBg = "rbxassetid://106957994731853",

@@ -129,6 +129,12 @@ AchievementConfig.Achievements = {
 	-- Melee Combat (2)
 	{ key = "first_spear_kill", name = "Stick 'Em",    icon = "\u{1F531}", category = "Melee", counter = "spear_kills",     threshold = 1,  desc = "Kill something with a spear." },
 	{ key = "spear_kills_25",   name = "Phalanx",      icon = "\u{2694}",  category = "Melee", counter = "spear_kills",     threshold = 25, desc = "Get 25 spear kills. A true warrior." },
+
+	-- Lore (4)
+	{ key = "ward_patient_chart", name = "Who Am I?",        icon = "\u{1F3E5}", category = "Lore", counter = "ward_chart_found", threshold = 1, desc = "Find your own patient chart." },
+	{ key = "ward_all_logs",      name = "The Full Story",   icon = "\u{1F4CB}", category = "Lore", counter = "ward_logs_found",  threshold = 5, desc = "Find all five of Dr. Chen's logs." },
+	{ key = "ward_all_lore",      name = "Ward Archivist",   icon = "\u{1F4DA}", category = "Lore", counter = "ward_lore_found",  threshold = 8, desc = "Discover every lore entry in The Ward." },
+	{ key = "lore_first",         name = "Page Turner",      icon = "\u{1F4D6}", category = "Lore", counter = "lore_total_found", threshold = 1, desc = "Discover your first lore entry." },
 }
 
 -- ── Build lookup tables ─────────────────────────────────────────────────
@@ -157,7 +163,7 @@ AchievementConfig.Categories = {
 	"Hunting", "Butchering", "Ranged", "Melee",
 	"Trading", "Harvesting", "Crafting", "Cooking", "Wealth",
 	"Login Streaks", "Tool Breaking", "Close Calls", "Campfire",
-	"Spoilage", "Bedroll", "Consumption",
+	"Spoilage", "Bedroll", "Consumption", "Lore",
 }
 
 -- ── Event-to-counter mappings ───────────────────────────────────────────
@@ -191,6 +197,12 @@ AchievementConfig.EventMappings = {
 	bow_kill                   = { { counter = "bow_kills" } },
 	spear_kill                 = { { counter = "spear_kills" } },
 	arrow_fired                = { { counter = "arrows_fired" } },
+	lore_discovered = {
+		{ counter = "lore_total_found" },
+		{ counter = "ward_lore_found",  condition = function(d) return d.loreArea == "The Ward" end },
+		{ counter = "ward_logs_found",  condition = function(d) return d.loreArea == "The Ward" and d.loreCategory == "Medical Log" end },
+		{ counter = "ward_chart_found", condition = function(d) return d.loreId == "ward_patient_chart" end },
+	},
 }
 
 return AchievementConfig

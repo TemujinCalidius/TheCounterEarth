@@ -203,6 +203,21 @@ return {
 		InteractRange = 6,
 	},
 
+	HUD = {
+		ButtonBar = {
+			Enabled = true,
+			ButtonSize = 56,           -- pixels (desktop)
+			ButtonSizeMobile = 58,     -- pixels (mobile/tablet)
+			ButtonSpacing = 6,         -- pixels gap between buttons
+			AccentColors = {
+				Inventory    = Color3.fromRGB(200, 168, 92),  -- gold #C8A85C
+				Character    = Color3.fromRGB(92, 184, 200),  -- teal #5CB8C8
+				Achievements = Color3.fromRGB(200, 181, 92),  -- amber #C8B55C
+				Codex        = Color3.fromRGB(59, 165, 181),  -- blue-teal #3BA5B5
+			},
+		},
+	},
+
 	EventBridge = {
 		Enabled = true,
 		EnableInStudio = false,

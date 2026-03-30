@@ -20,5 +20,8 @@ assets/
 # macOS
 .DS_Store
 
+# Lore repo (separate git repo, not part of game)
+lore/
+
 # Claude Code local settings
 .claude/

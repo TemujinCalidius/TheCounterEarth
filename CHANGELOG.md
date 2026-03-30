@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.25.0] - HUD panel refactor, Codex/Lore system, and UI improvements
+
+### Added
+- **PanelManager module** — centralized panel system handling mutual exclusivity, open/close animations (scale + transparency tween), mouse unlock in first-person mode, crosshair management, and click-outside-to-close overlay
+- **HUD button bar** — 4-button vertical strip on the right edge of the screen (Inventory, Character, Achievements, Codex) with accent-colored active states, hover effects, and 80%-fill icons; 56px desktop / 58px mobile
+- **Character Panel** (`CharacterPanelController`) — dedicated panel for equipment slots (head, chest, legs, feet, backpack, quiver) and RPG stat block (STR/AGI/CON/WIS/INT/CHA); opened via C key or HUD button
+- **Achievement Panel** (`AchievementPanelController`) — standalone achievement tracking panel with category dropdown filter, progress grid, and unlock status; opened via J key or HUD button
+- **Codex Panel** (`CodexController`) — lore collection panel with area sidebar (discovery counts per area), entry list, and parchment reading overlay; opened via K key or HUD button
+- **Lore Toast** (`LoreToastController`) — blue-teal slide-in toast notification on new lore discovery, modeled after achievement toasts
+- **Lore System** (`LoreService`) — server-side lore discovery tracking with per-player persistence via BindableFunctions (LoreLoad/LoreSave in ServerBindables), fires EventBridge `lore_discovered` events for achievement integration
+- **LoreConfig** — 8 Ward lore entries (5 Dr. Chen logs, evacuation notice, quarantine protocol, patient chart) with full narrative text, area/category organization, and lookup tables (ById, ByArea)
+- **Lore achievements** — 4 new achievements in "Lore" category: Page Turner (first lore), Who Am I? (patient chart), The Full Story (all 5 Chen logs), Ward Archivist (all 8 Ward entries); uses conditional EventMappings
+- **Ward reference images** — 23 style-guide-compliant reference images for The Ward stage (6 room overviews + 17 individual asset textures) in `assets/raw/reference/ward/`
+
+### Changed
+- **Inventory panel** — reduced from 4 tabs (Items/Recipes/Character/Achievements) to 2 tabs (Items/Recipes); character and achievement content moved to dedicated panels
+- **Inventory title** — changed from "CHARACTER SHEET" to "INVENTORY"
+- **DataStore profile** — bumped v6 → v7 with backwards-compatible `discoveredLore` field
+- **AchievementConfig** — added "Lore" category and `lore_discovered` EventMapping with conditional counters
+- **PlayerStateService** — loads/saves discoveredLore via LoreService BindableFunctions
+- **Tab key disabled PlayerList** — `StarterGui:SetCoreGuiEnabled(CoreGuiType.PlayerList, false)` to free Tab key for inventory toggle
+
+### Fixed
+- **Boulder spawn spam** — per-variant spawn tracking (each boulder template gets its own counter) + 200-failure bail-out prevents infinite retry loop when terrain can't support all boulder placements
+- **Escape key** — now closes any open PanelManager panel before other UI elements
+
+---
+
+## [0.24.0] - Multi-place architecture, hospital place, and movement polish
+
+### Added
+- **Multi-place architecture** — codebase restructured into `src/shared/` (core code for all places) and `src/places/<place>/` (per-place scripts). Each place has its own Rojo project file and port
+- **Sandbox place** (`sandbox.project.json`) — open-world survival with scatter spawning, animals, and trees
+- **Hospital place** (`hospital.project.json`) — indoor tutorial/story place with first-person camera
+- **First-person camera** — hospital uses `LockFirstPerson` camera mode with crosshair UI (horizontal + vertical lines with center dot)
+- **First-person inventory mouse unlock** — inventory panel overrides mouse lock per-frame via RenderStepped so cursor works in first-person mode; crosshair hides when inventory is open
+- **Crowbar weapon** — new melee weapon (18 damage, 0.9s cooldown, 80 durability) with placeholder Tool model; added to ItemRegistry and ToolPlaceholders
+
+### Fixed
+- **Avatar sliding/drifting on direction change** — added max friction (2.0) CustomPhysicalProperties on HumanoidRootPart plus active per-frame velocity correction that dampens sideways drift; avatar now grips corners instead of ice-skating (fixes #45)
+
+### Changed
+- **Project structure** — `default.project.json` replaced by `sandbox.project.json` and `hospital.project.json`; shared scripts moved from `src/ServerScriptService/`, `src/StarterPlayer/`, `src/ReplicatedStorage/Config/` into `src/shared/server/`, `src/shared/client/`, `src/shared/config/`
+- **AvatarSetup** — now applies movement drift correction alongside existing HipHeight and freefall suppression
+
+---
+
 ## [0.23.0] - Zombie NPC system
 
 ### Added

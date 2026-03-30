@@ -8,7 +8,6 @@
 --               USE / -> HOTBAR / SPLIT / DROP actions.
 --               Drag a slot onto another to swap; drag outside the panel to drop.
 -- RECIPES tab -- all recipes (hand-craft + cooking) with station badges and filters.
--- CHARACTER tab -- equipment slots and RPG stat block.
 
 local Players               = game:GetService("Players")
 local ReplicatedStorage     = game:GetService("ReplicatedStorage")
@@ -20,8 +19,17 @@ local ItemRegistry   = require(ReplicatedStorage:WaitForChild("Config"):WaitForC
 local AssetIds       = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds"))
 local CraftingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CraftingConfig"))
 local CookingConfig      = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("CookingConfig"))
-local AchievementConfig  = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AchievementConfig"))
 local TooltipModule      = require(ReplicatedStorage:WaitForChild("TooltipModule"))
+
+-- PanelManager is required lazily to avoid hitting the 200-local Luau cap.
+-- Extracting Character/Achievements panels in Phase 2-3 will free enough room.
+local _panelMgr: any = nil
+local function getPanelManager()
+	if not _panelMgr then
+		_panelMgr = require(script.Parent:WaitForChild("PanelManager"))
+	end
+	return _panelMgr
+end
 
 -- Mobile / touch detection helpers
 local function isClickOrTap(input)
@@ -66,12 +74,7 @@ local tradeInitiateRemote    = remotes:WaitForChild("TradeInitiate")     :: Remo
 local craftFailedRemote      = remotes:WaitForChild("CraftFailed")       :: RemoteEvent
 local saveUIPosRemote        = remotes:WaitForChild("SaveUIPosition")    :: RemoteEvent
 local equipBackpackRemote    = remotes:WaitForChild("EquipBackpack")     :: RemoteEvent
-local unequipBackpackRemote  = remotes:WaitForChild("UnequipBackpack")   :: RemoteEvent
 local equipQuiverRemote      = remotes:WaitForChild("EquipQuiver")       :: RemoteEvent
-local unequipQuiverRemote    = remotes:WaitForChild("UnequipQuiver")     :: RemoteEvent
-local achieveSyncRemote      = remotes:WaitForChild("AchievementSync", 10)
-local achieveRequestRemote   = remotes:WaitForChild("AchievementRequest", 10)
-local achieveUnlockedRemote  = remotes:WaitForChild("AchievementUnlocked", 10)
 
 local startPlacementEvent = ReplicatedStorage
 	:WaitForChild("ClientBindables"):WaitForChild("StartPlacement") :: BindableEvent
@@ -150,33 +153,6 @@ dragOverlay.IgnoreGuiInset   = true
 dragOverlay.DisplayOrder     = 100
 dragOverlay.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
 dragOverlay.Parent           = player.PlayerGui
-
--- ── Persistent bag button (right edge) ───────────────────────────────────
-local bagBtn = Instance.new("ImageButton")
-bagBtn.Name              = "BagButton"
-bagBtn.Size              = UDim2.new(0, 52, 0, 52)
-bagBtn.Position          = UDim2.new(1, -64, 0.5, -26)
-bagBtn.BackgroundColor3  = BG2
-bagBtn.BorderSizePixel   = 0
-bagBtn.Image             = AssetIds.Images.BagIcon
-bagBtn.ScaleType         = Enum.ScaleType.Fit
-bagBtn.Parent            = gui
-addCorner(bagBtn, 10)
-
-local bagStroke = Instance.new("UIStroke")
-bagStroke.Color     = Color3.fromRGB(55, 65, 95)
-bagStroke.Thickness = 1
-bagStroke.Parent    = bagBtn
-
-local bagLabel = Instance.new("TextLabel")
-bagLabel.Size               = UDim2.new(1, 0, 0, 12)
-bagLabel.Position           = UDim2.new(0, 0, 1, -14)
-bagLabel.BackgroundTransparency = 1
-bagLabel.Text               = "BAG"
-bagLabel.TextColor3         = TEXT
-bagLabel.Font               = Enum.Font.GothamBold
-bagLabel.TextSize           = 9
-bagLabel.Parent             = bagBtn
 
 -- Main panel (centered, or restored from saved position)
 local panel = Instance.new("Frame")
@@ -361,7 +337,7 @@ end)
 makeLabel(header, {
 	Size             = UDim2.new(1, -50, 1, 0),
 	Position         = UDim2.new(0, 14, 0, 0),
-	Text             = "CHARACTER SHEET",
+	Text             = "INVENTORY",
 	Font             = FONTB,
 	TextSize         = 14,
 	TextXAlignment   = Enum.TextXAlignment.Left,
@@ -400,8 +376,6 @@ end
 
 local itemsTabBtn = makeTabBtn("ITEMS",     0)
 local craftTabBtn = makeTabBtn("RECIPES",  95)
-local charTabBtn  = makeTabBtn("CHAR",    190)
-local achTabBtn   = makeTabBtn("ACHIEVE", 285)
 
 -- Content area (520 x 350 px usable)
 local content = Instance.new("Frame")
@@ -1190,524 +1164,8 @@ filterAllBtn.Activated:Connect(function()  setRecipeFilter("all") end)
 filterHandBtn.Activated:Connect(function() setRecipeFilter("hand") end)
 filterCampBtn.Activated:Connect(function() setRecipeFilter("campfire") end)
 
--- ── CHARACTER PANE ────────────────────────────────────────────────────────
-
-local charPane = Instance.new("Frame")
-charPane.Size               = UDim2.new(1, 0, 1, 0)
-charPane.BackgroundTransparency = 1
-charPane.Visible            = false
-charPane.Parent             = content
-
-local equipSection = Instance.new("Frame")
-equipSection.Size             = UDim2.new(0, 255, 1, 0)
-equipSection.BackgroundTransparency = 1
-equipSection.Parent           = charPane
-
-makeLabel(equipSection, {
-	Size           = UDim2.new(1, 0, 0, 16),
-	Text           = "EQUIPMENT",
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextColor3     = MUTED,
-	Font           = FONTB,
-	TextSize       = 10,
-})
-
-local SLOT_PAIRS = {
-	{ "Head",       "Head",       "Neck",     "Neck"      },
-	{ "Chest",      "Chest",      "Belt",     "Belt"      },
-	{ "Legs",       "Legs",       "Feet",     "Feet"      },
-	{ "RingL",      "Ring (L)",   "RingR",    "Ring (R)"  },
-	{ "MainHand",   "Main Hand",  "Quiver",   "Quiver"    },
-	{ "CoinPouch",  "Coin Pouch", "Backpack", "Backpack"  },
-}
-
-local SLOT_W, SLOT_H, SLOT_GAP = 118, 40, 6
-
-type SlotRef = { nameLabel: TextLabel, valLabel: TextLabel, box: Frame? }
-local slotRefs: { [string]: SlotRef } = {}
-
-local function makeSlotBox(parent: Instance, slotId: string, labelText: string, xOff: number, yOff: number)
-	local box = Instance.new("Frame")
-	box.Size             = UDim2.new(0, SLOT_W, 0, SLOT_H)
-	box.Position         = UDim2.new(0, xOff, 0, yOff)
-	box.BackgroundColor3 = BG3
-	box.BorderSizePixel  = 0
-	box.Parent           = parent
-	addCorner(box, 5)
-
-	local nameLabel = makeLabel(box, {
-		Size           = UDim2.new(1, -6, 0, 14),
-		Position       = UDim2.new(0, 6, 0, 3),
-		Text           = labelText,
-		TextColor3     = MUTED,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextSize       = 10,
-	})
-	local valLabel = makeLabel(box, {
-		Size           = UDim2.new(1, -6, 0, 18),
-		Position       = UDim2.new(0, 6, 0, 18),
-		Text           = "--",
-		TextColor3     = TEXT,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Font           = FONTB,
-		TextSize       = 12,
-	})
-	slotRefs[slotId] = { nameLabel = nameLabel, valLabel = valLabel, box = box }
-end
-
-for row, pair in ipairs(SLOT_PAIRS) do
-	local yOff = 20 + (row - 1) * (SLOT_H + SLOT_GAP)
-	makeSlotBox(equipSection, pair[1], pair[2], 0,          yOff)
-	makeSlotBox(equipSection, pair[3], pair[4], SLOT_W + 8, yOff)
-end
-
--- Click Backpack slot to unequip
-do
-	local bpRef = slotRefs["Backpack"]
-	if bpRef and bpRef.box then
-		local btn = Instance.new("TextButton")
-		btn.Size                    = UDim2.new(1, 0, 1, 0)
-		btn.BackgroundTransparency  = 1
-		btn.Text                    = ""
-		btn.Parent                  = bpRef.box
-		btn.Activated:Connect(function()
-			local equipped = player:GetAttribute("EquipSlot_Backpack") or ""
-			if equipped ~= "" then
-				unequipBackpackRemote:FireServer()
-			end
-		end)
-	end
-end
-
--- Click Quiver slot to unequip
-do
-	local qRef = slotRefs["Quiver"]
-	if qRef and qRef.box then
-		local btn = Instance.new("TextButton")
-		btn.Size                    = UDim2.new(1, 0, 1, 0)
-		btn.BackgroundTransparency  = 1
-		btn.Text                    = ""
-		btn.Parent                  = qRef.box
-		btn.Activated:Connect(function()
-			local equipped = player:GetAttribute("EquipSlot_Quiver") or ""
-			if equipped ~= "" then
-				unequipQuiverRemote:FireServer()
-			end
-		end)
-	end
-end
-
-local statsSection = Instance.new("Frame")
-statsSection.Size             = UDim2.new(1, -265, 1, 0)
-statsSection.Position         = UDim2.new(0, 265, 0, 0)
-statsSection.BackgroundTransparency = 1
-statsSection.Parent           = charPane
-
-makeLabel(statsSection, {
-	Size           = UDim2.new(1, 0, 0, 16),
-	Text           = "ATTRIBUTES",
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextColor3     = MUTED,
-	Font           = FONTB,
-	TextSize       = 10,
-})
-
-local STAT_DEFS = {
-	{ id = "STR", label = "Strength",     desc = "Physical power"           },
-	{ id = "AGI", label = "Agility",      desc = "Speed & precision"        },
-	{ id = "CON", label = "Constitution", desc = "Health & stamina"         },
-	{ id = "WIS", label = "Wisdom",       desc = "Survival intuition"       },
-	{ id = "INT", label = "Intellect",    desc = "Crafting & lore"          },
-	{ id = "CHA", label = "Charisma",     desc = "NPC pricing & diplomacy"  },
-}
-
-type StatRef = { valLabel: TextLabel }
-local statRefs: { [string]: StatRef } = {}
-
-for i, stat in ipairs(STAT_DEFS) do
-	local yOff = 20 + (i - 1) * 48
-	local statBox = Instance.new("Frame")
-	statBox.Size             = UDim2.new(1, 0, 0, 44)
-	statBox.Position         = UDim2.new(0, 0, 0, yOff)
-	statBox.BackgroundColor3 = BG3
-	statBox.BorderSizePixel  = 0
-	statBox.Parent           = statsSection
-	addCorner(statBox, 5)
-
-	makeLabel(statBox, {
-		Size           = UDim2.new(1, -50, 0, 16),
-		Position       = UDim2.new(0, 8, 0, 4),
-		Text           = stat.label,
-		Font           = FONTB,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextSize       = 12,
-	})
-	makeLabel(statBox, {
-		Size           = UDim2.new(1, -50, 0, 16),
-		Position       = UDim2.new(0, 8, 0, 22),
-		Text           = stat.desc,
-		TextColor3     = MUTED,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextSize       = 10,
-	})
-
-	local valLabel = makeLabel(statBox, {
-		Size           = UDim2.new(0, 40, 1, 0),
-		Position       = UDim2.new(1, -48, 0, 0),
-		Text           = "0",
-		Font           = FONTB,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextSize       = 16,
-		TextColor3     = ACCENT,
-	})
-	statRefs[stat.id] = { valLabel = valLabel }
-end
-
--- ── ACHIEVEMENTS PANE ─────────────────────────────────────────────────────
-
-local GOLD = Color3.fromRGB(255, 200, 60)
-
-local achPane = Instance.new("Frame")
-achPane.Size               = UDim2.new(1, 0, 1, 0)
-achPane.BackgroundTransparency = 1
-achPane.Visible            = false
-achPane.Parent             = content
-
--- Achievement state (synced from server)
-local achCounters: { [string]: number } = {}
-local achUnlocked: { [string]: number } = {}
-local achTotalCount = AchievementConfig.TotalCount
-
--- Summary header
-local achSummary = makeLabel(achPane, {
-	Size           = UDim2.new(1, 0, 0, 20),
-	Position       = UDim2.new(0, 0, 0, 0),
-	Text           = "0/" .. achTotalCount .. " Achievements Unlocked",
-	TextColor3     = GOLD,
-	Font           = FONTB,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextSize       = 12,
-})
-
--- Category dropdown filter
-local achFilterCategory = "ALL"
-
-local allCategories = { "ALL" }
-for _, cat in ipairs(AchievementConfig.Categories) do
-	table.insert(allCategories, cat)
-end
-
--- Dropdown trigger button
-local achDropdownBtn = Instance.new("TextButton")
-achDropdownBtn.Size             = UDim2.new(1, 0, 0, 26)
-achDropdownBtn.Position         = UDim2.new(0, 0, 0, 22)
-achDropdownBtn.BackgroundColor3 = BG2
-achDropdownBtn.BorderSizePixel  = 0
-achDropdownBtn.TextColor3       = TEXT
-achDropdownBtn.TextSize         = 11
-achDropdownBtn.Font             = FONTB
-achDropdownBtn.TextXAlignment   = Enum.TextXAlignment.Left
-achDropdownBtn.Text             = "  ALL  v"
-achDropdownBtn.Parent           = achPane
-addCorner(achDropdownBtn, 4)
-
-local achDropdownStroke = Instance.new("UIStroke")
-achDropdownStroke.Color       = Color3.fromRGB(55, 65, 95)
-achDropdownStroke.Thickness   = 1
-achDropdownStroke.Transparency = 0.4
-achDropdownStroke.Parent      = achDropdownBtn
-
--- Dropdown popup (hidden by default)
-local achDropdownPopup = Instance.new("ScrollingFrame")
-achDropdownPopup.Size               = UDim2.new(1, 0, 0, 200)
-achDropdownPopup.Position           = UDim2.new(0, 0, 0, 50)
-achDropdownPopup.BackgroundColor3   = BG
-achDropdownPopup.BackgroundTransparency = 0.05
-achDropdownPopup.BorderSizePixel    = 0
-achDropdownPopup.ScrollBarThickness = 3
-achDropdownPopup.ScrollBarImageColor3 = MUTED
-achDropdownPopup.AutomaticCanvasSize = Enum.AutomaticSize.Y
-achDropdownPopup.CanvasSize         = UDim2.new(0, 0, 0, 0)
-achDropdownPopup.Visible            = false
-achDropdownPopup.ZIndex             = 10
-achDropdownPopup.Parent             = achPane
-addCorner(achDropdownPopup, 6)
-
-local achDropdownPopupStroke = Instance.new("UIStroke")
-achDropdownPopupStroke.Color       = Color3.fromRGB(55, 65, 95)
-achDropdownPopupStroke.Thickness   = 1
-achDropdownPopupStroke.Transparency = 0.3
-achDropdownPopupStroke.Parent      = achDropdownPopup
-
-local achDropdownLayout = Instance.new("UIListLayout")
-achDropdownLayout.FillDirection = Enum.FillDirection.Vertical
-achDropdownLayout.Padding       = UDim.new(0, 2)
-achDropdownLayout.SortOrder     = Enum.SortOrder.LayoutOrder
-achDropdownLayout.Parent        = achDropdownPopup
-
-local achDropdownPadding = Instance.new("UIPadding")
-achDropdownPadding.PaddingTop    = UDim.new(0, 4)
-achDropdownPadding.PaddingBottom = UDim.new(0, 4)
-achDropdownPadding.PaddingLeft   = UDim.new(0, 4)
-achDropdownPadding.PaddingRight  = UDim.new(0, 4)
-achDropdownPadding.Parent        = achDropdownPopup
-
--- Category count labels (updated in refreshAchievements)
-local achCatCountLabels: { [string]: TextLabel } = {}
-
-for i, cat in ipairs(allCategories) do
-	local row = Instance.new("TextButton")
-	row.Size             = UDim2.new(1, 0, 0, 24)
-	row.BackgroundColor3 = if cat == "ALL" then BG3 else BG2
-	row.BackgroundTransparency = 0.2
-	row.BorderSizePixel  = 0
-	row.TextColor3       = if cat == "ALL" then TEXT else MUTED
-	row.TextSize         = 10
-	row.Font             = FONTB
-	row.TextXAlignment   = Enum.TextXAlignment.Left
-	row.Text             = "  " .. cat
-	row.LayoutOrder      = i
-	row.ZIndex           = 11
-	row.Parent           = achDropdownPopup
-	addCorner(row, 4)
-
-	-- Count badge on right side
-	local countLabel = makeLabel(row, {
-		Size           = UDim2.new(0, 40, 1, 0),
-		Position       = UDim2.new(1, -44, 0, 0),
-		TextColor3     = MUTED,
-		TextSize       = 9,
-		Font           = FONTB,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		Text           = "",
-		ZIndex         = 12,
-	})
-	achCatCountLabels[cat] = countLabel
-
-	local capturedCat = cat
-	row.Activated:Connect(function()
-		achFilterCategory = capturedCat
-		achDropdownBtn.Text = "  " .. capturedCat .. "  v"
-		achDropdownPopup.Visible = false
-		refreshAchievements()
-	end)
-
-	-- Highlight on hover
-	row.MouseEnter:Connect(function()
-		row.BackgroundTransparency = 0
-	end)
-	row.MouseLeave:Connect(function()
-		row.BackgroundTransparency = 0.2
-	end)
-end
-
--- Toggle dropdown on button click
-achDropdownBtn.Activated:Connect(function()
-	achDropdownPopup.Visible = not achDropdownPopup.Visible
-end)
-
--- Scrolling grid of achievement cards
-local achScroll = Instance.new("ScrollingFrame")
-achScroll.Size               = UDim2.new(1, 0, 1, -54)
-achScroll.Position           = UDim2.new(0, 0, 0, 52)
-achScroll.BackgroundTransparency = 1
-achScroll.ScrollBarThickness = 4
-achScroll.ScrollBarImageColor3 = MUTED
-achScroll.CanvasSize         = UDim2.new(0, 0, 0, 0)
-achScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-achScroll.Parent             = achPane
-
-local achGrid = Instance.new("UIGridLayout")
-achGrid.CellSize     = UDim2.new(0, 96, 0, 90)
-achGrid.CellPadding  = UDim2.new(0, 6, 0, 6)
-achGrid.SortOrder    = Enum.SortOrder.LayoutOrder
-achGrid.Parent       = achScroll
-
--- Build achievement card frames (once, then show/hide on filter)
-type AchCard = { frame: Frame, category: string, key: string, iconLabel: GuiObject, nameLabel: TextLabel, progressLabel: TextLabel, checkLabel: TextLabel, stroke: UIStroke }
-local achCards: { AchCard } = {}
-
-for i, ach in ipairs(AchievementConfig.Achievements) do
-	local card = Instance.new("Frame")
-	card.Size             = UDim2.new(0, 96, 0, 90)
-	card.BackgroundColor3 = BG3
-	card.BorderSizePixel  = 0
-	card.LayoutOrder      = i
-	card.Parent           = achScroll
-	addCorner(card, 6)
-
-	local achCardStroke = Instance.new("UIStroke")
-	achCardStroke.Color       = MUTED
-	achCardStroke.Thickness   = 1
-	achCardStroke.Transparency = 0.7
-	achCardStroke.Parent      = card
-
-	-- Use ImageLabel if an achievement icon asset exists, otherwise fall back to emoji TextLabel
-	local achIconAsset = AssetIds.AchievementIcons and AssetIds.AchievementIcons[ach.key]
-	local iconLabel: GuiObject
-	if achIconAsset and achIconAsset ~= "" then
-		local img = Instance.new("ImageLabel")
-		img.Size = UDim2.new(0, 32, 0, 32)
-		img.Position = UDim2.new(0.5, 0, 0, 6)
-		img.AnchorPoint = Vector2.new(0.5, 0)
-		img.BackgroundTransparency = 1
-		img.Image = achIconAsset
-		img.ScaleType = Enum.ScaleType.Fit
-		img.Parent = card
-		iconLabel = img
-	else
-		iconLabel = makeLabel(card, {
-			Size     = UDim2.new(1, 0, 0, 32),
-			Position = UDim2.new(0, 0, 0, 6),
-			Text     = ach.icon,
-			TextSize = 24,
-		})
-	end
-
-	local nameLabel = makeLabel(card, {
-		Size           = UDim2.new(1, -6, 0, 24),
-		Position       = UDim2.new(0, 3, 0, 38),
-		Text           = ach.name,
-		TextColor3     = TEXT,
-		TextSize       = 9,
-		Font           = FONTB,
-		TextWrapped    = true,
-		TextTruncate   = Enum.TextTruncate.AtEnd,
-	})
-
-	local progressLabel = makeLabel(card, {
-		Size           = UDim2.new(1, 0, 0, 14),
-		Position       = UDim2.new(0, 0, 1, -18),
-		Text           = "0/" .. ach.threshold,
-		TextColor3     = MUTED,
-		TextSize       = 9,
-	})
-
-	local checkLabel = makeLabel(card, {
-		Size           = UDim2.new(0, 20, 0, 20),
-		Position       = UDim2.new(1, -22, 0, 2),
-		Text           = "\u{2714}",
-		TextColor3     = GOLD,
-		TextSize       = 14,
-		Font           = FONTB,
-	})
-	checkLabel.Visible = false
-
-	table.insert(achCards, {
-		frame = card,
-		category = ach.category,
-		key = ach.key,
-		iconLabel = iconLabel,
-		nameLabel = nameLabel,
-		progressLabel = progressLabel,
-		checkLabel = checkLabel,
-		stroke = achCardStroke,
-	})
-
-	-- Register achievement tooltip
-	TooltipModule.register(card, {
-		kind = "achievement",
-		key = ach.key,
-		counter = 0,
-		unlocked = false,
-	})
-end
-
-local function refreshAchievements()
-	local unlockedCount = 0
-	for _ in pairs(achUnlocked) do unlockedCount += 1 end
-	achSummary.Text = unlockedCount .. "/" .. achTotalCount .. " Achievements Unlocked"
-
-	for i, card in ipairs(achCards) do
-		local ach = AchievementConfig.Achievements[i]
-		local isUnlocked = achUnlocked[ach.key] ~= nil
-		local counter = achCounters[ach.counter] or 0
-		local progress = math.min(counter, ach.threshold)
-
-		-- Filter visibility
-		local matchesFilter = achFilterCategory == "ALL" or card.category == achFilterCategory
-		card.frame.Visible = matchesFilter
-
-		-- Update progress
-		card.progressLabel.Text = progress .. "/" .. ach.threshold
-
-		-- Update achievement tooltip data
-		TooltipModule.update(card.frame, {
-			kind = "achievement",
-			key = ach.key,
-			counter = counter,
-			unlocked = isUnlocked,
-		})
-
-		-- Unlocked state
-		card.checkLabel.Visible = isUnlocked
-		local iconAlpha = if isUnlocked then 0 else 0.5
-		if card.iconLabel:IsA("ImageLabel") then
-			(card.iconLabel :: ImageLabel).ImageTransparency = iconAlpha
-		elseif card.iconLabel:IsA("TextLabel") then
-			(card.iconLabel :: TextLabel).TextTransparency = iconAlpha
-		end
-		if isUnlocked then
-			card.frame.BackgroundColor3 = Color3.fromRGB(32, 42, 36)
-			card.progressLabel.TextColor3 = GOLD
-			card.nameLabel.TextColor3 = TEXT
-			card.stroke.Color = GOLD
-			card.stroke.Transparency = 0.4
-		else
-			card.frame.BackgroundColor3 = BG3
-			card.progressLabel.TextColor3 = MUTED
-			card.nameLabel.TextColor3 = MUTED
-			card.stroke.Color = MUTED
-			card.stroke.Transparency = 0.7
-		end
-	end
-
-	-- Update category count badges in dropdown
-	local catTotal: { [string]: number } = {}
-	local catUnlocked: { [string]: number } = {}
-	for _, ach in ipairs(AchievementConfig.Achievements) do
-		catTotal[ach.category] = (catTotal[ach.category] or 0) + 1
-		if achUnlocked[ach.key] then
-			catUnlocked[ach.category] = (catUnlocked[ach.category] or 0) + 1
-		end
-	end
-	for cat, lbl in pairs(achCatCountLabels) do
-		if cat == "ALL" then
-			lbl.Text = unlockedCount .. "/" .. achTotalCount
-		else
-			lbl.Text = (catUnlocked[cat] or 0) .. "/" .. (catTotal[cat] or 0)
-		end
-	end
-end
-
--- Close dropdown when clicking on the achievement grid (click-outside dismissal)
-achScroll.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		achDropdownPopup.Visible = false
-	end
-end)
-
--- Listen for achievement sync from server
-if achieveSyncRemote then
-	achieveSyncRemote.OnClientEvent:Connect(function(data)
-		if type(data) ~= "table" then return end
-		if type(data.counters) == "table" then achCounters = data.counters end
-		if type(data.unlocked) == "table" then achUnlocked = data.unlocked end
-		refreshAchievements()
-	end)
-end
-
--- Listen for individual unlocks (update local state immediately)
-if achieveUnlockedRemote then
-	achieveUnlockedRemote.OnClientEvent:Connect(function(data)
-		if type(data) ~= "table" then return end
-		if data.key then
-			achUnlocked[data.key] = os.time()
-			refreshAchievements()
-		end
-	end)
-end
+-- CHARACTER PANE — extracted to CharacterPanelController.client.luau
+-- ACHIEVEMENTS PANE — extracted to AchievementPanelController.client.luau
 
 -- ── State ──────────────────────────────────────────────────────────────────
 
@@ -2466,35 +1924,6 @@ local function refreshWeight()
 		or ACCENT
 end
 
-local function refreshCharacter()
-	for slotId, ref in pairs(slotRefs) do
-		local raw: any
-		if slotId == "MainHand" then
-			local equippedSlot = tonumber(player:GetAttribute("HotbarEquippedSlot")) or 0
-			if equippedSlot >= 1 and equippedSlot <= 9 then
-				raw = player:GetAttribute("HotbarSlot" .. equippedSlot)
-			end
-		else
-			raw = player:GetAttribute("EquipSlot_" .. slotId)
-		end
-
-		local itemId = type(raw) == "string" and raw or ""
-		if itemId ~= "" then
-			local def = ItemRegistry.get(itemId)
-			ref.valLabel.Text      = def and def.displayName or itemId
-			ref.valLabel.TextColor3 = TEXT
-		else
-			ref.valLabel.Text      = "--"
-			ref.valLabel.TextColor3 = MUTED
-		end
-	end
-
-	for statId, ref in pairs(statRefs) do
-		local val = tonumber(player:GetAttribute("Stat_" .. statId)) or 0
-		ref.valLabel.Text = tostring(math.floor(val))
-	end
-end
-
 refreshRecipeBook = function()
 	for i, rowData in ipairs(recipeRows) do
 		local recipe = allRecipes[i]
@@ -2541,7 +1970,6 @@ local function refreshAll()
 	refreshItemList()
 	refreshWeight()
 	refreshRecipeBook()
-	refreshCharacter()
 end
 
 -- ── Tab switching ─────────────────────────────────────────────────────────
@@ -2549,33 +1977,20 @@ end
 local function setTab(tab: string)
 	itemsPane.Visible      = tab == "items"
 	craftPane.Visible      = tab == "craft"
-	charPane.Visible       = tab == "char"
-	achPane.Visible        = tab == "achieve"
-	itemsTabBtn.TextColor3 = tab == "items"   and TEXT or MUTED
-	craftTabBtn.TextColor3 = tab == "craft"   and TEXT or MUTED
-	charTabBtn.TextColor3  = tab == "char"    and TEXT or MUTED
-	achTabBtn.TextColor3   = tab == "achieve" and TEXT or MUTED
-	itemsTabBtn.BackgroundColor3 = tab == "items"   and BG3 or BG2
-	craftTabBtn.BackgroundColor3 = tab == "craft"   and BG3 or BG2
-	charTabBtn.BackgroundColor3  = tab == "char"    and BG3 or BG2
-	achTabBtn.BackgroundColor3   = tab == "achieve" and BG3 or BG2
-	if tab == "char" then refreshCharacter() end
-	if tab == "achieve" then
-		if achieveRequestRemote then achieveRequestRemote:FireServer() end
-		refreshAchievements()
-	end
+	itemsTabBtn.TextColor3 = tab == "items" and TEXT or MUTED
+	craftTabBtn.TextColor3 = tab == "craft" and TEXT or MUTED
+	itemsTabBtn.BackgroundColor3 = tab == "items" and BG3 or BG2
+	craftTabBtn.BackgroundColor3 = tab == "craft" and BG3 or BG2
 end
 
 setTab("items")
 
 itemsTabBtn.Activated:Connect(function() setTab("items") end)
 craftTabBtn.Activated:Connect(function() setTab("craft") end)
-charTabBtn.Activated:Connect(function() setTab("char") end)
-achTabBtn.Activated:Connect(function() setTab("achieve") end)
 
 -- Hover effects on tab buttons
 local TAB_HOVER = Color3.fromRGB(52, 58, 78)
-for _, btn in ipairs({ itemsTabBtn, craftTabBtn, charTabBtn, achTabBtn }) do
+for _, btn in ipairs({ itemsTabBtn, craftTabBtn }) do
 	btn.MouseEnter:Connect(function()
 		if btn.BackgroundColor3 ~= BG3 then -- not active tab
 			btn.BackgroundColor3 = TAB_HOVER
@@ -2588,7 +2003,8 @@ for _, btn in ipairs({ itemsTabBtn, craftTabBtn, charTabBtn, achTabBtn }) do
 	end)
 end
 
--- ── Open / close ──────────────────────────────────────────────────────────
+-- ── Open / close (delegated to PanelManager) ─────────────────────────────
+-- Mouse unlock, crosshair hide, and click-outside are handled by PanelManager.
 
 setOpen = function(open: boolean)
 	isOpen        = open
@@ -2599,14 +2015,29 @@ setOpen = function(open: boolean)
 	end
 end
 
-closeBtn.Activated:Connect(function() setOpen(false) end)
-bagBtn.Activated:Connect(function() setOpen(not isOpen) end)
+-- Register with PanelManager so mutual-exclusivity, mouse unlock, and
+-- click-outside-to-close all work automatically.
+getPanelManager().register("inventory", {
+	open = function()
+		setOpen(true)
+	end,
+	close = function()
+		setOpen(false)
+	end,
+	frame = panel,
+	screenGui = gui,
+})
 
+closeBtn.Activated:Connect(function()
+	getPanelManager().close()
+end)
+
+-- Bind I to toggle inventory via PanelManager
 ContextActionService:BindActionAtPriority(
 	"ToggleInventory",
 	function(_name, state, _obj)
 		if state == Enum.UserInputState.Begin then
-			setOpen(not isOpen)
+			getPanelManager().toggle("inventory")
 		end
 		return Enum.ContextActionResult.Sink
 	end,
@@ -2614,6 +2045,15 @@ ContextActionService:BindActionAtPriority(
 	Enum.ContextActionPriority.High.Value,
 	Enum.KeyCode.I
 )
+
+-- Tab key: Roblox may intercept Tab internally even with PlayerList disabled,
+-- so use UserInputService as a more reliable binding for Tab.
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.Tab then
+		getPanelManager().toggle("inventory")
+	end
+end)
 
 -- ── Reactive attribute updates ────────────────────────────────────────────
 
@@ -2630,14 +2070,6 @@ player.AttributeChanged:Connect(function(attrName: string)
 		refreshItemList()
 		refreshWeight()
 		refreshRecipeBook()
-	elseif attrName == "HotbarEquippedSlot"
-		or attrName:sub(1, 10) == "HotbarSlot"
-	then
-		refreshCharacter()
-	elseif attrName:sub(1, 5) == "Stat_"
-		or attrName:sub(1, 10) == "EquipSlot_"
-	then
-		refreshCharacter()
 	end
 end)
 
