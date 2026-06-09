@@ -10,7 +10,7 @@ local StatsConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChil
 local ItemRegistry = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ItemRegistry"))
 local EventBridge  = require(script.Parent:WaitForChild("EventBridge"))
 
-local PROFILE_VERSION = 7
+local PROFILE_VERSION = 8
 local LEGACY_CREDITS_STORE_NAME = "CreditsV1"
 
 local useDataStore = (not RunService:IsStudio()) or Config.Credits.UseDataStoreInStudio
@@ -315,6 +315,8 @@ local function makeDefaultProfile(): { [string]: any }
 		inventory = emptyInventory(),
 		invSlots = {},
 		survivalSeconds = 0,
+		gender = nil,
+		skin_tone = nil,
 	}
 end
 
@@ -477,6 +479,8 @@ local function decodeProfile(raw: any): { [string]: any }?
 		discoveredLore = if type(raw.discoveredLore) == "table" then raw.discoveredLore else {},
 		equippedBackpack = if type(raw.equippedBackpack) == "string" then raw.equippedBackpack else nil,
 		equippedQuiver = if type(raw.equippedQuiver) == "string" then raw.equippedQuiver else nil,
+		gender = if type(raw.gender) == "string" then raw.gender else nil,
+		skin_tone = if type(raw.skin_tone) == "string" then raw.skin_tone else nil,
 	}
 end
 
@@ -930,6 +934,8 @@ local function buildProfileFromState(player: Player, state: PlayerState): { [str
 			end
 			return {}
 		end)(),
+		gender = player:GetAttribute("AppearanceGender") or nil,
+		skin_tone = player:GetAttribute("AppearanceSkinTone") or nil,
 	}
 end
 
@@ -1388,6 +1394,18 @@ local function setupPlayer(player: Player)
 		setupCharacter(player, player.Character)
 	end
 
+	-- ── Trigger character spawn via CharacterAppearanceService ────────────
+	-- (CharacterAutoLoads is disabled by CharacterAppearanceService)
+	local spawnBindable = bindablesFolder:FindFirstChild("SpawnPlayerAvatar")
+	local promptCreatorBindable = bindablesFolder:FindFirstChild("PromptCharacterCreator")
+	if profile.gender and profile.skin_tone and spawnBindable and spawnBindable:IsA("BindableFunction") then
+		task.spawn(function()
+			spawnBindable:Invoke(player, profile.gender, profile.skin_tone)
+		end)
+	elseif promptCreatorBindable and promptCreatorBindable:IsA("BindableEvent") then
+		promptCreatorBindable:Fire(player)
+	end
+
 	EventBridge.fire("player_join", player, {
 		playerCount = #Players:GetPlayers(),
 	})
@@ -1690,6 +1708,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 						break
 					end
 				end
+
 			end
 		end
 	end

@@ -15,6 +15,7 @@ src/
 │   │   ├── CookingConfig.luau           -- Campfire cooking recipes (raw → cooked)
 │   │   ├── AchievementConfig.luau       -- Achievement definitions, counters, event mappings
 │   │   ├── LoreConfig.luau             -- Lore entry definitions (title, body, category, trigger)
+│   │   ├── AppearanceConfig.luau       -- Genders (Male/Female templates) + 5 skin tone presets
 │   │   ├── AssetIds.luau                -- rbxassetid:// mappings for images and sounds
 │   │   └── InventoryTypes.luau          -- Shared type definitions
 │   │
@@ -30,7 +31,7 @@ src/
 │   │   ├── TradingService.server.luau        -- Player-to-player trading
 │   │   ├── PlayerInspectService.server.luau  -- Player inspect: profile data on request
 │   │   ├── ToolPlaceholders.server.luau      -- Runtime placeholder Tool models (until Studio meshes exist)
-│   │   ├── AvatarRigService.server.luau      -- RightHand Motor6D for tool attachment
+│   │   ├── CharacterAppearanceService.server.luau -- Custom R15 spawning: gender template + skin tone
 │   │   ├── AchievementService.server.luau    -- Achievement tracking, counters, unlocks, login streaks
 │   │   ├── LoreService.server.luau          -- Lore discovery tracking, DataStore persistence
 │   │   ├── EventBridge.luau                  -- ModuleScript: HTTP event dispatcher (+ onFire hook)
@@ -49,12 +50,11 @@ src/
 │   │   ├── BowController.client.luau         -- Bow aiming, draw UI, crosshair, mobile buttons
 │   │   ├── LootBagController.client.luau     -- Loot bag countdown timers and death bag beacons
 │   │   ├── InspectController.client.luau     -- Player inspect UI, ProximityPrompt on other players
-│   │   ├── BoneTracker.client.luau           -- Tracks hand bones for all characters (local + remote)
+│   │   ├── CharacterCreatorController.client.luau -- First-join modal: gender + skin tone picker
 │   │   ├── LoadingScreen.client.luau         -- Loading screen with scatter-ready fade
 │   │   └── AchievementToastController.client.luau -- Achievement unlock toast notifications
 │   │
-│   ├── character/                       -- Character scripts (all places)
-│   │   └── AvatarSetup.client.luau      -- HipHeight, drift correction, freefall suppression
+│   ├── character/                       -- (empty placeholder — StarterCharacterScripts mount)
 │   │
 │   └── modules/                         -- Shared modules
 │       └── TooltipModule.luau           -- Tooltip rendering
@@ -116,7 +116,7 @@ The central server authority for player data. Owns the `Remotes` folder.
 
 **DataStore:**
 - Store name: `PlayerProfileV2`, key format: `player_{userId}`
-- Profile version: 7
+- Profile version: 8
 - Auto-saves every 60s when dirty, force-saves on leave and BindToClose
 - Saves: credits, energy, health, hunger, thirst, fatigue, blood, poison, bleed stacks, active effect flags, hotbar inventory, slot-based inventory, per-item expiry timestamps, last position, achievements, discoveredLore
 - `lastPosition` saved as `{x,y,z}` from HumanoidRootPart on save; used for relog teleport (one-time)
@@ -425,7 +425,7 @@ Dedicated panel for achievement browsing. Registered with PanelManager.
 Lore discovery and browsing system. Player finds lore entries through exploration; entries persist in DataStore.
 
 **Server (`LoreService.server.luau`):**
-- Tracks discovered lore per player in `discoveredLore` set (DataStore profile v7)
+- Tracks discovered lore per player in `discoveredLore` set (DataStore profile v8)
 - `DiscoverLore` RemoteEvent: client or server triggers discovery
 - `LoreDiscovered` RemoteEvent: server confirms discovery to client (triggers toast)
 - `GetDiscoveredLore` RemoteFunction: client requests full discovered set on join
@@ -502,17 +502,40 @@ Survival stat values live in `StatsConfig.luau` (hunger, thirst, fatigue drain r
 
 ---
 
-## Custom Avatar & Tool Attachment
+## Character Appearance (R15 Skinned Avatars + Creator)
 
-Single-mesh Mixamo avatars need special handling for tool attachment since standard R15 Motor6Ds don't exist.
+The game uses standard R15 skinned avatars with two pre-built templates (Male/Female). Players pick gender + skin tone on first join; returning players spawn straight into their saved appearance.
 
-**Server (`AvatarRigService.server.luau`):** Creates a `RightHandJoint` Motor6D between `HumanoidRootPart` and a transparent `RightHand` Part on each character spawn. This lets Roblox's built-in `humanoid:EquipTool()` work.
+**Templates:** `ServerStorage/AvatarTemplates/Male` and `ServerStorage/AvatarTemplates/Female`. Each is a full R15 character Model with body parts, Humanoid, BodyColors, and any pre-attached accessories (hair, brows, lashes).
 
-**Client (`BoneTracker.client.luau`):** Runs on each client, tracking the `mixamorig:RightHand` bone inside the `Base_Avatar` MeshPart for ALL visible characters (local + remote). Updates `Motor6D.C0` every `PreRender` frame so equipped tools follow the hand animation with zero visual lag.
+**Server (`CharacterAppearanceService.server.luau`):**
+- Disables `Players.CharacterAutoLoads = false` so we control all spawning
+- `SpawnPlayerAvatar` BindableFunction (in `ServerStorage.ServerBindables`) — clones the matching template, applies skin tone via `BodyColors` properties + per-part `Color3` fallback, positions at first `SpawnLocation` found, assigns to `player.Character`
+- `PromptCharacterCreator` BindableEvent — fires `ShowCharacterCreator` remote to the target client
+- `AppearanceChosen` RemoteEvent (client→server) — receives `(gender, skin_tone)`, validates against `AppearanceConfig`, spawns the character
 
-**Client (`AvatarSetup.client.luau`):** Local-player-only setup: HipHeight adjustment, movement drift correction (max friction + active sideways velocity dampening to eliminate ice-skating on direction changes), and jump freefall suppression for single-mesh avatars.
+**Client (`CharacterCreatorController.client.luau`):** Listens for `ShowCharacterCreator`. Builds a full-screen modal ScreenGui with title, gender toggle (2 buttons), 5 skin tone swatch buttons, and a confirm button. On confirm fires `AppearanceChosen` with the chosen `(gender, skin_tone)` and destroys the modal.
 
-**Config:** `GameplayConfig.Avatar` — `HandBoneName`, `MeshPartName`, `HipHeight`
+**Config (`AppearanceConfig.luau`):** Shared module with `Genders` table (2 entries: `male`, `female`), `SkinTones` table (5 presets: tone_1 Porcelain → tone_5 Deep), ordered ID lists for stable UI rendering, and `Defaults` table.
+
+**Player attributes:** `AppearanceGender` and `AppearanceSkinTone` hold current state on the player instance. Persisted by `PlayerStateService` in profile v8.
+
+**Integration flow:**
+```
+Player joins
+  → PlayerStateService.setupPlayer loads profile
+  → if profile.gender + profile.skin_tone present:
+       → invoke SpawnPlayerAvatar bindable → CharacterAdded fires → setupCharacter runs
+  → else:
+       → fire PromptCharacterCreator → client shows modal
+       → player picks → client fires AppearanceChosen
+       → server validates + spawns → setupCharacter runs
+       → saveProfile (auto-save loop) persists gender + skin_tone
+```
+
+**Adding new skin tones:** Add an entry to `AppearanceConfig.SkinTones` with a stable ID and `Color3` value. Append the ID to `SkinToneOrder`. UI auto-renders.
+
+**Future: barber chair.** Same UI in "edit" mode (gender locked) opened from a ProximityPrompt. Just adds an `EditAppearance` remote that calls `SpawnPlayerAvatar` again with the new values — character respawns at current position with updated appearance.
 
 ---
 
@@ -579,7 +602,7 @@ Event-driven achievement tracking. The game is the single source of truth — th
 
 **Config (`AchievementConfig.luau`):** Shared between server and client. Defines achievements (key, name, icon, category, counter, threshold, optional `badgeId` for Roblox Badge integration), counter names, event-to-counter mappings with conditions, and lookup tables (ByCounter, ByKey).
 
-**DataStore (profile v7):** `achievements = { counters = {}, unlocked = { key → timestamp }, loginStreak = { lastLoginDate, currentStreak, longestStreak } }`. ~2-3KB added per profile. Also stores `discoveredLore` set for lore system.
+**DataStore (profile v8):** `achievements = { counters = {}, unlocked = { key → timestamp }, loginStreak = { lastLoginDate, currentStreak, longestStreak } }`. ~2-3KB added per profile. Also stores `discoveredLore` set for lore system.
 
 **Client toast (`AchievementToastController.client.luau`):** Gold-accented 300×70px frame slides in from top-right on unlock, holds 4s, fades out. Queue system for multiple unlocks.
 

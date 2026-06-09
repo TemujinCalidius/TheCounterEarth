@@ -59,13 +59,6 @@ return {
 		UICloseRange = 12,         -- studs: auto-close UI if player walks away
 	},
 
-	Avatar = {
-		HipHeight = 2.6,
-		JumpAnimHoldSeconds = 1.9,   -- suppress freefall state after jump (match jump animation length)
-		HandBoneName = "mixamorig:RightHand",
-		MeshPartName = "Base_Avatar",
-	},
-
 	Trading = {
 		InteractRange = 15,            -- studs: ProximityPrompt range and max trade distance
 		RequestTimeoutSeconds = 15,    -- pending request expires after this

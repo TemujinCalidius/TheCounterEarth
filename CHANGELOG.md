@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.26.0] - Standard R15 avatars + character creator
+
+### Added
+- **AppearanceConfig.luau** — config with 2 gender templates + 5 skin tone presets (Porcelain, Fair, Olive, Bronze, Deep)
+- **CharacterAppearanceService** (server) — disables `Players.CharacterAutoLoads`, clones gender-specific templates from `ServerStorage.AvatarTemplates`, applies skin tone via `BodyColors` + per-part `Color3`, exposes `SpawnPlayerAvatar` BindableFunction and `PromptCharacterCreator` BindableEvent
+- **CharacterCreatorController** (client) — full-screen modal for first-time character creation: male/female toggle + 5 skin tone swatches + confirm button. Fires `AppearanceChosen` remote on submit
+- **Profile v8** — adds `gender` and `skin_tone` fields. Returning players spawn straight into their saved appearance; new players see the creator modal once on first join
+- **Player attributes** `AppearanceGender` and `AppearanceSkinTone` — persisted via the profile save loop
+
+### Changed
+- `PlayerStateService.setupPlayer` now triggers character spawning via `SpawnPlayerAvatar` (if profile has gender + skin_tone) or `PromptCharacterCreator` (first-time players). Removes the previous reliance on Roblox's default character auto-load
+
+### Removed
+- `AvatarSetup.client.luau`, `AvatarRigService.server.luau`, `BoneTracker.client.luau` — single-mesh custom avatar pipeline is no longer needed (standard R15 has built-in Motor6Ds, animations, and rig setup)
+- `GameplayConfig.Avatar` section — `HipHeight`, `HandBoneName`, `MeshPartName` were single-mesh specific
+
+### Migration notes
+- Requires `ServerStorage/AvatarTemplates/Male` and `ServerStorage/AvatarTemplates/Female` models (skinned R15 with hair, brows, lashes attached as Accessories)
+- Profile v8 is backward-compatible with v7 — old profiles without `gender`/`skin_tone` will trigger the creator modal on next join
+
+---
+
 ## [0.25.0] - HUD panel refactor, Codex/Lore system, and UI improvements
 
 ### Added
