@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.27.2] - Respawn camera fix
+
+### Fixed
+- **"Respawn doesn't work"** — the server respawned players correctly (verified: new character, full health, Nurse's Station), but the client camera stayed locked on the destroyed character, so the player kept staring at their corpse. Roblox's camera module misses the `CameraSubject` swap when characters are assigned via `player.Character = clone` instead of `LoadCharacter()`. New `RespawnCameraFix.client.luau` re-points the camera on every `CharacterAdded`
+
+---
+
 ## [0.27.1] - Ward playtest fixes: zombie LoS, loading screen, equip safety
 
 ### Fixed
