@@ -12,6 +12,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
 
 local AppearanceConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AppearanceConfig"))
@@ -103,6 +104,142 @@ local function applySkinTone(character: Model, skinToneId: string)
 	end
 end
 
+-- ── Starter accessories ─────────────────────────────────────────
+-- Everything inside ServerStorage.StarterAccessories is cloned and attached
+-- to every freshly-spawned character (hospital gown, slippers, etc.).
+-- Humanoid:AddAccessory uses the Accessory's Attachment to weld it to the
+-- matching body-part Attachment.
+local function attachStarterAccessories(character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local folder = ServerStorage:FindFirstChild("StarterAccessories")
+	if not folder then return end
+
+	for _, accessory in folder:GetChildren() do
+		if accessory:IsA("Accessory") then
+			humanoid:AddAccessory(accessory:Clone())
+		end
+	end
+end
+
+-- ── StarterCharacterScripts injection ────────────────────────────
+-- Roblox auto-clones StarterCharacterScripts into characters spawned via
+-- Player:LoadCharacter(), but NOT when we assign player.Character directly.
+-- We do it manually so any custom character scripts run.
+local function injectStarterCharacterScripts(character: Model)
+	local scs = StarterPlayer:FindFirstChild("StarterCharacterScripts")
+	if not scs then return end
+
+	for _, child in scs:GetChildren() do
+		local existing = character:FindFirstChild(child.Name)
+		if existing then
+			existing:Destroy()
+		end
+		local clone = child:Clone()
+		clone.Parent = character
+	end
+end
+
+-- ── Default R15 movement animations (driven server-side) ─────────
+-- Driving from the server bypasses LocalScript timing/injection issues —
+-- AnimationTrack:Play() replicates to every client automatically.
+local DEFAULT_ANIMATIONS = {
+	idle     = "rbxassetid://507766388",
+	walk     = "rbxassetid://913402848",
+	run      = "rbxassetid://913376220",
+	jump     = "rbxassetid://507765000",
+	fall     = "rbxassetid://507767968",
+	climb    = "rbxassetid://507765644",
+	sit      = "rbxassetid://2506281703",
+	swim     = "rbxassetid://507784897",
+	swimIdle = "rbxassetid://481825862",
+}
+
+local LOOPED_ANIMS: { [string]: boolean } = {
+	idle = true, walk = true, run = true, climb = true,
+	sit = true, swim = true, swimIdle = true,
+}
+
+local function setupCharacterAnimations(character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+		or character:WaitForChild("Humanoid", 5)
+	if not humanoid or not humanoid:IsA("Humanoid") then return end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	local tracks: { [string]: AnimationTrack } = {}
+	for name, id in DEFAULT_ANIMATIONS do
+		local anim = Instance.new("Animation")
+		anim.AnimationId = id
+		local ok, track = pcall(function()
+			return animator:LoadAnimation(anim)
+		end)
+		if ok and track then
+			track.Priority = Enum.AnimationPriority.Movement
+			track.Looped = LOOPED_ANIMS[name] == true
+			tracks[name] = track
+		end
+	end
+
+	local currentName: string? = nil
+	local function play(name: string, fade: number?)
+		if name == currentName then return end
+		local track = tracks[name]
+		if not track then return end
+		local current = currentName and tracks[currentName] or nil
+		if current and current.IsPlaying then
+			current:Stop(fade or 0.15)
+		end
+		track:Play(fade or 0.15)
+		currentName = name
+	end
+
+	local function update()
+		if humanoid.Parent == nil or humanoid.Health <= 0 then return end
+		local state = humanoid:GetState()
+		local moving = humanoid.MoveDirection.Magnitude > 0.05
+
+		if state == Enum.HumanoidStateType.Swimming then
+			play(moving and "swim" or "swimIdle")
+		elseif state == Enum.HumanoidStateType.Climbing then
+			play("climb")
+		elseif state == Enum.HumanoidStateType.Seated then
+			play("sit")
+		elseif state == Enum.HumanoidStateType.Jumping then
+			play("jump", 0.1)
+		elseif state == Enum.HumanoidStateType.Freefall then
+			play("fall", 0.1)
+		elseif moving then
+			if humanoid.WalkSpeed > 18 then
+				play("run")
+			else
+				play("walk")
+			end
+		else
+			play("idle")
+		end
+	end
+
+	humanoid.StateChanged:Connect(update)
+	humanoid.Running:Connect(update)
+
+	-- Poll at 10Hz to catch MoveDirection / WalkSpeed changes that don't
+	-- fire a Roblox event (sprint toggle while already moving).
+	task.spawn(function()
+		while humanoid.Parent ~= nil do
+			update()
+			task.wait(0.1)
+		end
+	end)
+
+	update()
+end
+
 -- ── Spawn helper ─────────────────────────────────────────────────
 local function findSpawnLocation(): SpawnLocation?
 	for _, instance in Workspace:GetDescendants() do
@@ -154,8 +291,19 @@ local function spawnAvatar(player: Player, gender: string?, skinTone: string?): 
 	player:SetAttribute("AppearanceGender", gender)
 	player:SetAttribute("AppearanceSkinTone", skinTone)
 
+	-- Inject any StarterCharacterScripts (Roblox doesn't do this
+	-- automatically when we set player.Character instead of LoadCharacter)
+	injectStarterCharacterScripts(character)
+
 	character.Parent = Workspace
 	player.Character = character
+
+	-- Attach default starter clothing/accessories (hospital gown, slippers, etc.)
+	attachStarterAccessories(character)
+
+	-- Drive default R15 movement animations from the server. Replicates
+	-- to all clients via the Animator, so no LocalScript needed.
+	task.spawn(setupCharacterAnimations, character)
 
 	return character
 end

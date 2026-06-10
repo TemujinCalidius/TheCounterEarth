@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.26.1] - Character spawn polish: server-side animations + starter accessories
+
+### Added
+- **Server-side R15 movement animations** in `CharacterAppearanceService` — Animator + AnimationTracks (idle/walk/run/jump/fall/climb/sit/swim/swimIdle) created and driven by `Humanoid.StateChanged` + 10Hz poll. Tracks replicate to all clients via the Animator, no LocalScript needed. Bypasses the `LoadCharacter` vs `player.Character = clone` discrepancy that made the previous client-side `Animate.client.luau` not run.
+- **`attachStarterAccessories(character)`** in `CharacterAppearanceService` — auto-equips every `Accessory` inside `ServerStorage.StarterAccessories` on spawn via `Humanoid:AddAccessory`. Used for hospital gown, slippers, and any other default-issue items
+- **`injectStarterCharacterScripts(character)`** — manual clone of `StarterPlayer.StarterCharacterScripts` children into spawned characters. Roblox only does this automatically for `Player:LoadCharacter` spawns
+
+### Removed
+- `src/shared/character/Animate.client.luau` — replaced by server-side animation handling above
+
+### Migration notes
+- Requires a `ServerStorage.StarterAccessories` folder. Add Accessories there (with `AccessoryType` set to `LeftShoe`/`RightShoe`/`Shirt`/etc.) to have them auto-equipped on every spawn
+- Resolved GitHub issue #19 (single-mesh swim buoyancy) — no longer applicable with standard R15 rigs
+
+---
+
 ## [0.26.0] - Standard R15 avatars + character creator
 
 ### Added
