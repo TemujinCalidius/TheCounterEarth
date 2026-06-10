@@ -129,6 +129,17 @@ local function ensureToolTemplate(tool: Tool): Tool?
 
 	local template = tool:Clone()
 	template.Name = itemId
+	-- World display copies are often anchored so they sit still; an anchored
+	-- Handle on an equipped tool teleports/freezes the character. Templates
+	-- must always be equip-safe.
+	for _, part in template:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Anchored = false
+			part.CanCollide = false
+		end
+	end
+	local glow = template:FindFirstChild("WeaponGlow")
+	if glow then glow:Destroy() end
 	template.Parent = templateFolder
 	return template
 end

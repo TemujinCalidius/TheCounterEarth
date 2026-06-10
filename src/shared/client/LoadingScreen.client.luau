@@ -132,15 +132,26 @@ task.spawn(function()
 end)
 
 -- ── Wait for server signal ──────────────────────────────────────────────
+-- Connect the listener as early as possible (a bare :Wait() misses fires
+-- that happen before the client is listening), and always cap the wait so
+-- a missed/never-created remote can't strand players on a black screen.
 
-local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 10)
-local scatterReady  = remotesFolder and remotesFolder:WaitForChild("ScatterReady", 30)
+local MAX_WAIT_SECONDS = 20
+local ready = false
 
-if scatterReady then
-	scatterReady.OnClientEvent:Wait()
-else
-	-- Fallback: if remote never appears, dismiss after 15s
-	task.wait(15)
+task.spawn(function()
+	local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 10)
+	local scatterReady = remotesFolder and remotesFolder:WaitForChild("ScatterReady", MAX_WAIT_SECONDS)
+	if scatterReady then
+		scatterReady.OnClientEvent:Connect(function()
+			ready = true
+		end)
+	end
+end)
+
+local waitStart = os.clock()
+while not ready and (os.clock() - waitStart) < MAX_WAIT_SECONDS do
+	task.wait(0.25)
 end
 
 -- ── Dismiss ─────────────────────────────────────────────────────────────

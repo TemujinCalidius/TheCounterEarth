@@ -87,27 +87,13 @@ local pvpDamageEvent = Instance.new("BindableEvent")
 pvpDamageEvent.Name = "PvPDamageTag"
 pvpDamageEvent.Parent = bindablesFolder
 
-pvpDamageEvent.Event:Connect(function(victim: Player, attacker: Player)
-	local state = playerStates[victim]
-	if not state then return end
-	state.lastDamageCause = "pvp"
-	state.lastDamageByUserId = attacker.UserId
-	state.lastDamageByName = attacker.DisplayName
-end)
-
 -- NPC damage tagging: hostile NPCs fire this when dealing damage to a player.
 -- Args: (victimPlayer: Player, npcType: string)
 local npcDamageEvent = Instance.new("BindableEvent")
 npcDamageEvent.Name = "NpcDamageTag"
 npcDamageEvent.Parent = bindablesFolder
 
-npcDamageEvent.Event:Connect(function(victim: Player, npcType: string)
-	local state = playerStates[victim]
-	if not state then return end
-	state.lastDamageCause = npcType  -- "zombie", etc.
-	state.lastDamageByUserId = nil
-	state.lastDamageByName = nil
-end)
+-- (handlers connected below, after playerStates is declared)
 
 type PlayerState = {
 	energy: number,
@@ -144,6 +130,24 @@ type PlayerState = {
 }
 
 local playerStates: { [Player]: PlayerState } = {}
+
+-- Damage-tag handlers (must be connected after playerStates exists — connecting
+-- them earlier captured a nil global and errored on every NPC hit)
+pvpDamageEvent.Event:Connect(function(victim: Player, attacker: Player)
+	local state = playerStates[victim]
+	if not state then return end
+	state.lastDamageCause = "pvp"
+	state.lastDamageByUserId = attacker.UserId
+	state.lastDamageByName = attacker.DisplayName
+end)
+
+npcDamageEvent.Event:Connect(function(victim: Player, npcType: string)
+	local state = playerStates[victim]
+	if not state then return end
+	state.lastDamageCause = npcType  -- "zombie", etc.
+	state.lastDamageByUserId = nil
+	state.lastDamageByName = nil
+end)
 
 -- ── Campfire config ─────────────────────────────────────────────────────────
 local CAMPFIRE_SIT_RADIUS      = (Config.Campfire and Config.Campfire.SitRadius) or 10

@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.27.1] - Ward playtest fixes: zombie LoS, loading screen, equip safety
+
+### Fixed
+- **Zombies aggroing and walking through walls** (`ZombieService`) — detection now requires line of sight, and PivotTo movement raycasts ahead each step and holds at static geometry. The Breach crawler stays at the breach instead of phasing across the level
+- **`PlayerStateService` nil-global crash** — the PvP/NPC damage-tag handlers were connected before `playerStates` was declared, erroring on every NPC hit (and breaking death-cause attribution) since the handlers were introduced
+- **~45s black screen on hospital join** — nothing created the `ScatterReady` remote in the hospital (PlaceInit only looked it up), so `LoadingScreen` burned a 30s WaitForChild + 15s fallback. PlaceInit now owns the remote and signals each player individually; LoadingScreen connects its listener before any fire can be missed and hard-caps the wait at 20s. This also explains "hotkeys not working" — panels were opening invisibly behind the opaque overlay
+- **Bandage pickup teleporting the player** — `ensureToolTemplate` cloned world tools verbatim, so an anchored display Handle became an anchored equipped Handle (character snaps to the tool's position). Templates are now sanitized (unanchored, no collide, glow stripped); the polluted bandage template was rebuilt
+- **Lore reader requiring two interactions** — first-time discoveries now open the codex reading view immediately (previously only re-reads did)
+- Trimmed ZombieService zone-init debug prints that dumped entire instance trees to the console
+
+### Studio (hospital place)
+- Vent shaft: real openings cut through both walls (crawl view is no longer inside solid geometry); grates repositioned as pried-off covers
+- Breach crossing flattened and widened (no more forcing through), header raised, crawler zone moved to flat ground
+- Ward monitors rotated to face the room, screens dimmed
+
+---
+
 ## [0.27.0] - The Ward rebuild: wiki-accurate tutorial level + supporting systems
 
 ### Added

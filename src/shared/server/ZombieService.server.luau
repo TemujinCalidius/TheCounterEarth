@@ -301,7 +301,18 @@ local function randomInZone(zone: BasePart): Vector3
 	return worldPos
 end
 
-local function getNearestPlayerInRange(position: Vector3, radius: number): (number, Player?)
+-- True when nothing static blocks the zombie's view of the target character.
+-- Without this, zombies in multi-room interiors aggro through walls.
+local function hasLineOfSight(fromPos: Vector3, char: Model, targetRoot: BasePart): boolean
+	if not zombieRayParams then buildRayParams() end
+	local origin = fromPos + Vector3.new(0, 2, 0)
+	local target = targetRoot.Position + Vector3.new(0, 1, 0)
+	local result = Workspace:Raycast(origin, target - origin, zombieRayParams)
+	if not result then return true end
+	return result.Instance:IsDescendantOf(char)
+end
+
+local function getNearestPlayerInRange(position: Vector3, radius: number, needLoS: boolean?): (number, Player?)
 	local best = math.huge
 	local bestPlayer: Player? = nil
 	for _, p in Players:GetPlayers() do
@@ -312,8 +323,10 @@ local function getNearestPlayerInRange(position: Vector3, radius: number): (numb
 		if root then
 			local dist = (root.Position - position).Magnitude
 			if dist < best and dist <= radius then
-				best = dist
-				bestPlayer = p
+				if not needLoS or hasLineOfSight(position, char, root) then
+					best = dist
+					bestPlayer = p
+				end
 			end
 		end
 	end
@@ -377,15 +390,28 @@ RunService.Heartbeat:Connect(function(dt: number)
 				local step = math.min(zombie.moveSpeed * dt, flatDist)
 				local dirX = dx / flatDist
 				local dirZ = dz / flatDist
-				local newX = pos.X + dirX * step
-				local newZ = pos.Z + dirZ * step
 
-				local surfY = groundSurfaceY(newX, newZ, pos.Y)
-				local newY = surfY and (surfY + zombie.halfHeight) or pos.Y
+				-- PivotTo movement ignores physics, so walls must be checked
+				-- explicitly or zombies phase through rooms.
+				local wallHit = Workspace:Raycast(
+					pos + Vector3.new(0, 1.2, 0),
+					Vector3.new(dirX, 0, dirZ) * (step + 0.8),
+					zombieRayParams
+				)
+				if wallHit and not Players:GetPlayerFromCharacter(wallHit.Instance:FindFirstAncestorOfClass("Model")) then
+					-- Blocked by static geometry: hold position this frame
+					zombie.moveTarget = nil
+				else
+					local newX = pos.X + dirX * step
+					local newZ = pos.Z + dirZ * step
 
-				local newPos = Vector3.new(newX, newY, newZ)
-				local lookAt = Vector3.new(newX + dirX, newY, newZ + dirZ)
-				zombie.model:PivotTo(CFrame.lookAt(newPos, lookAt))
+					local surfY = groundSurfaceY(newX, newZ, pos.Y)
+					local newY = surfY and (surfY + zombie.halfHeight) or pos.Y
+
+					local newPos = Vector3.new(newX, newY, newZ)
+					local lookAt = Vector3.new(newX + dirX, newY, newZ + dirZ)
+					zombie.model:PivotTo(CFrame.lookAt(newPos, lookAt))
+				end
 			end
 		end
 
@@ -435,7 +461,7 @@ local function runZombieAI(zombie: ZombieData)
 		local pos = root.Position
 
 		-- ── Detection check ──
-		local nearDist, nearPlayer = getNearestPlayerInRange(pos, DETECTION_RADIUS)
+		local nearDist, nearPlayer = getNearestPlayerInRange(pos, DETECTION_RADIUS, true)
 		local detected = nearPlayer ~= nil
 
 		-- ── IDLE STATE ──
@@ -459,7 +485,7 @@ local function runZombieAI(zombie: ZombieData)
 			while (os.clock() - idleStart) < idleTime do
 				task.wait(0.5)
 				if zombie.state == "dead" or not model.Parent then break end
-				local d = getNearestPlayerInRange(root.Position, DETECTION_RADIUS)
+				local d = getNearestPlayerInRange(root.Position, DETECTION_RADIUS, true)
 				if d < math.huge then break end  -- player detected
 			end
 
@@ -471,7 +497,7 @@ local function runZombieAI(zombie: ZombieData)
 			if zombie.state == "dead" or not model.Parent then break end
 
 			-- Transition to wander if no player detected (crawlers stay put)
-			local d2 = getNearestPlayerInRange(root.Position, DETECTION_RADIUS)
+			local d2 = getNearestPlayerInRange(root.Position, DETECTION_RADIUS, true)
 			if d2 >= math.huge and not zombie.permanentCrawler then
 				zombie.state = "wander"
 			end
@@ -494,7 +520,7 @@ local function runZombieAI(zombie: ZombieData)
 			while zombie.moveTarget and (os.clock() - waitStart) < 6 do
 				task.wait(0.3)
 				if zombie.state == "dead" or not model.Parent then break end
-				local d = getNearestPlayerInRange(root.Position, DETECTION_RADIUS)
+				local d = getNearestPlayerInRange(root.Position, DETECTION_RADIUS, true)
 				if d < math.huge then break end
 			end
 
@@ -792,15 +818,11 @@ local function initZombieZones()
 		return
 	end
 
-	print("[ZombieService] Found ZombieZones folder with", #zonesFolder:GetChildren(), "children")
 	for _, zone in zonesFolder:GetChildren() do
-		print("[ZombieService] Zone:", zone.Name, "IsBasePart:", zone:IsA("BasePart"))
 		if zone:IsA("BasePart") then
 			local maxZombies = zone:GetAttribute("MaxZombies") or MAX_PER_ZONE
 			local zombieType = zone:GetAttribute("ZombieType") or "zombie_1_hospital"
-			print("[ZombieService] Spawning", maxZombies, "of type", zombieType, "in zone", zone.Name)
-			local template = scatterModels and scatterModels:FindFirstChild(zombieType)
-			print("[ZombieService] Template found:", template ~= nil, "PrimaryPart:", template and template.PrimaryPart)
+			print(string.format("[ZombieService] Zone %s: spawning %d x %s", zone.Name, maxZombies, zombieType))
 			for _ = 1, math.min(maxZombies, MAX_PER_ZONE) do
 				spawnZombieInZone(zone, zombieType)
 			end

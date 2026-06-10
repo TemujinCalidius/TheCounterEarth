@@ -568,9 +568,13 @@ if loreDiscoveredRemote then
 	loreDiscoveredRemote.OnClientEvent:Connect(function(loreId: any)
 		if type(loreId) ~= "string" then return end
 		discoveredSet[loreId] = true
-		-- Auto-open reading view if codex is open
+		-- Open the reading view immediately on discovery (same as re-reads)
 		if PanelManager.getActive() == "codex" then
 			refreshCodex()
+			openReading(loreId)
+		else
+			PanelManager.open("codex")
+			task.wait(0.2)
 			openReading(loreId)
 		end
 	end)
