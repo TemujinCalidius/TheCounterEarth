@@ -332,7 +332,12 @@ local function setupWorldTool(tool: Tool)
 	end
 
 	prompt.ActionText = PICKUP_ACTION_TEXT
-	prompt.ObjectText = itemId
+	local def = ItemRegistry.get(itemId)
+	if def and def.category == "weapon" then
+		prompt.ObjectText = (def.displayName or itemId) .. " (Weapon)"
+	else
+		prompt.ObjectText = (def and def.displayName) or itemId
+	end
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 10
@@ -344,6 +349,28 @@ local function setupWorldTool(tool: Tool)
 		end
 		pickupToolForPlayer(player, tool)
 	end)
+
+	-- Weapons get a glow so players spot them instantly
+	if def and def.category == "weapon" then
+		if not tool:FindFirstChild("WeaponGlow") then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "WeaponGlow"
+			highlight.FillColor = Color3.fromRGB(255, 200, 80)
+			highlight.FillTransparency = 0.85
+			highlight.OutlineColor = Color3.fromRGB(255, 220, 120)
+			highlight.OutlineTransparency = 0.2
+			highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+			highlight.Parent = tool
+		end
+		if not handle:FindFirstChild("WeaponGlowLight") then
+			local light = Instance.new("PointLight")
+			light.Name = "WeaponGlowLight"
+			light.Color = Color3.fromRGB(255, 210, 120)
+			light.Brightness = 0.8
+			light.Range = 7
+			light.Parent = handle
+		end
+	end
 end
 
 local function ensurePersistedTools(player: Player)

@@ -91,10 +91,9 @@ loreSaveFunc.OnInvoke = function(player: Player)
 	return getDiscoveredList(player)
 end
 
--- ── Lore interaction handler ─────────────────────────────────────────────
+-- ── Lore discovery ───────────────────────────────────────────────────────
 
-loreInteractRemote.OnServerEvent:Connect(function(player: Player, loreId: unknown)
-	if type(loreId) ~= "string" then return end
+local function discover(player: Player, loreId: string)
 	if not playerLoaded[player] then return end
 
 	-- Validate lore ID
@@ -128,7 +127,59 @@ loreInteractRemote.OnServerEvent:Connect(function(player: Player, loreId: unknow
 		totalDiscovered = totalDiscovered,
 		totalAvailable = LoreConfig.TotalCount,
 	})
+end
+
+loreInteractRemote.OnServerEvent:Connect(function(player: Player, loreId: unknown)
+	if type(loreId) ~= "string" then return end
+	discover(player, loreId)
 end)
+
+-- ── World lore props ─────────────────────────────────────────────────────
+-- Any BasePart (or Model with a PrimaryPart) carrying a string attribute
+-- `LoreId` gets a "Read" ProximityPrompt that discovers the entry on trigger.
+-- Place a prop in Studio, set the attribute, done.
+
+local Workspace = game:GetService("Workspace")
+
+local function setupLoreProp(inst: Instance)
+	local loreId = inst:GetAttribute("LoreId")
+	if type(loreId) ~= "string" then return end
+
+	local promptParent: BasePart? = nil
+	if inst:IsA("BasePart") then
+		promptParent = inst
+	elseif inst:IsA("Model") then
+		promptParent = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart")
+	end
+	if not promptParent then return end
+	if promptParent:FindFirstChild("LorePrompt") then return end
+
+	local loreDef = LoreConfig.ById[loreId]
+	if not loreDef then
+		warn("[LORE] Unknown LoreId attribute on " .. inst:GetFullName() .. ": " .. loreId)
+		return
+	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "LorePrompt"
+	prompt.ActionText = "Read"
+	prompt.ObjectText = loreDef.title
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0.3
+	prompt.MaxActivationDistance = 8
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = promptParent
+
+	prompt.Triggered:Connect(function(player)
+		discover(player, loreId)
+	end)
+end
+
+for _, inst in ipairs(Workspace:GetDescendants()) do
+	setupLoreProp(inst)
+end
+
+Workspace.DescendantAdded:Connect(setupLoreProp)
 
 -- ── Cleanup ──────────────────────────────────────────────────────────────
 

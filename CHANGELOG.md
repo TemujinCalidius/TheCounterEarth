@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.27.0] - The Ward rebuild: wiki-accurate tutorial level + supporting systems
+
+### Added
+- **World lore props** (`LoreService`) — any BasePart/Model with a `LoreId` attribute gets a "Read" ProximityPrompt that fires lore discovery (toast + codex + reading overlay). All 8 Ward collectibles placed: Chen Logs 01–05, Patient Chart (Bed 4), Evacuation Notice, Quarantine Protocol
+- **Vent crawl** (`VentCrawl.server.luau`, hospital) — attribute-driven (`IsVentCrawl`) scripted crawl: prompts at both ends, character tweens prone through waypoint markers with a swim-track crawl pose, stands up at the far side. R15 avatars can't fit a 3-stud shaft, so the crawl is scripted
+- **Pipe + Reinforced Pipe** (`ItemRegistry`) — Ward tutorial weapons (tier 0 dmg 12 / tier 1 dmg 18, melee, no durability). Clean Tool templates in `ServerStorage/ItemTools`, world pickups placed per the wiki
+- **Weapon pickup affordance** (`ToolInventoryService`) — world weapons get an automatic gold Highlight + PointLight, and prompts now show registry display names ("Pipe (Weapon)") instead of raw item IDs
+- **Permanent crawler zombies** (`ZombieService`) — zone attribute `Crawler=true`: always prone, never stands, cannot scream, slow chase (5 studs/s). The Breach's Crawling Infected per the wiki
+- **No-respawn zones** (`ZombieService`) — zone attribute `NoRespawn=true`: killed enemies stay dead (Ward tutorial rule)
+- **Death respawn** (`CharacterAppearanceService`) — players respawn 4s after death (was: never, a v0.26.0 regression). A SpawnLocation named `RespawnLocation` takes priority on death respawns (Ward: the Nurse's Station)
+
+### Fixed
+- **Indoor zombie spawning** (`ZombieService`) — ground raycasts now cast from a reference height instead of Y=500, so zone spawns land on room floors instead of the roof
+- Removed chase-loop debug print spam in `ZombieService`
+
+### Studio (hospital place)
+- The Ward fully rebuilt to match the wiki area guide: Ward Room (7 beds, sealed door + barricade, desk, notice board, NE vent) → Vent Shaft → Maintenance Corridor (dark, pipe pickup, junction box) → The Breach (passable rubble, crawler) → Nurse's Station (reception desk, medicine cabinet + bandage, filing cabinet, paper desk, respawn) → Main Hall (chairs, vending machines, info desk, 3 standing infected, shattered glass) → Exit (broken doors, sunlight)
+- Player spawn moved beside the player's bed (Bed 4); global lighting cleaned (skybox green-bleed eliminated, duplicate Atmosphere/Bloom removed, DepthOfField disabled)
+- Placeholder R15 `AvatarTemplates` + empty `StarterAccessories` created in hospital ServerStorage (copy the real skinned templates + gown/slippers from the sandbox place when convenient)
+
+---
+
 ## [0.26.1] - Character spawn polish: server-side animations + starter accessories
 
 ### Added

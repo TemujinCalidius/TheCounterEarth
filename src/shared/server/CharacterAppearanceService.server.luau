@@ -241,16 +241,52 @@ local function setupCharacterAnimations(character: Model)
 end
 
 -- ── Spawn helper ─────────────────────────────────────────────────
-local function findSpawnLocation(): SpawnLocation?
+-- On death respawns, a SpawnLocation named "RespawnLocation" wins if one
+-- exists (e.g. the Nurse's Station in The Ward). Initial joins use the
+-- first other SpawnLocation found.
+local function findSpawnLocation(isRespawn: boolean?): SpawnLocation?
+	local firstSpawn: SpawnLocation? = nil
+	local respawnSpawn: SpawnLocation? = nil
 	for _, instance in Workspace:GetDescendants() do
 		if instance:IsA("SpawnLocation") then
-			return instance
+			if instance.Name == "RespawnLocation" then
+				respawnSpawn = respawnSpawn or instance
+			else
+				firstSpawn = firstSpawn or instance
+			end
 		end
 	end
-	return nil
+	if isRespawn and respawnSpawn then
+		return respawnSpawn
+	end
+	return firstSpawn or respawnSpawn
 end
 
-local function spawnAvatar(player: Player, gender: string?, skinTone: string?): Model?
+local RESPAWN_DELAY_SECONDS = 4
+
+local spawnAvatar  -- forward declaration (hookRespawn calls it)
+
+-- Auto-respawn: with CharacterAutoLoads off, nothing else brings a player
+-- back after death.
+local function hookRespawn(player: Player, character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	humanoid.Died:Once(function()
+		task.delay(RESPAWN_DELAY_SECONDS, function()
+			if player.Parent ~= Players then return end
+			if player.Character ~= character then return end -- already respawned elsewhere
+			spawnAvatar(
+				player,
+				player:GetAttribute("AppearanceGender"),
+				player:GetAttribute("AppearanceSkinTone"),
+				true
+			)
+		end)
+	end)
+end
+
+function spawnAvatar(player: Player, gender: string?, skinTone: string?, isRespawn: boolean?): Model?
 	gender = AppearanceConfig.isValidGender(gender) and gender or AppearanceConfig.Defaults.gender
 	skinTone = AppearanceConfig.isValidSkinTone(skinTone) and skinTone or AppearanceConfig.Defaults.skin_tone
 
@@ -277,7 +313,7 @@ local function spawnAvatar(player: Player, gender: string?, skinTone: string?): 
 	applySkinTone(character, skinTone)
 
 	-- Position at SpawnLocation if found
-	local spawn = findSpawnLocation()
+	local spawn = findSpawnLocation(isRespawn)
 	local hrp = character:FindFirstChild("HumanoidRootPart")
 	if hrp and hrp:IsA("BasePart") then
 		if spawn then
@@ -304,6 +340,8 @@ local function spawnAvatar(player: Player, gender: string?, skinTone: string?): 
 	-- Drive default R15 movement animations from the server. Replicates
 	-- to all clients via the Animator, so no LocalScript needed.
 	task.spawn(setupCharacterAnimations, character)
+
+	hookRespawn(player, character)
 
 	return character
 end

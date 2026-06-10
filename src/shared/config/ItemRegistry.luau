@@ -486,6 +486,45 @@ Items.crowbar = {
 	icon = "",
 }
 
+-- The Ward tutorial weapons. No durabilityMax — tutorial weapons never break.
+Items.pipe = {
+	id = "pipe",
+	displayName = "Pipe",
+	description = "A length of steel pipe pulled from the hospital walls. Your first weapon.",
+	stackMax = 1,
+	weight = 1.0,
+	slotSize = { w = 1, h = 2 },
+	category = "weapon",
+	weapon = {
+		kind = "spear", -- uses melee combat system
+		tier = 0,
+		damage = 12,
+		attackCooldown = 0.85,
+		attackRange = 6,
+	},
+	tags = { "weapon", "melee", "tier0", "hospital" },
+	icon = "",
+}
+
+Items.reinforced_pipe = {
+	id = "reinforced_pipe",
+	displayName = "Reinforced Pipe",
+	description = "A steel pipe wrapped with clamps and tape. Heavier, and it hits harder.",
+	stackMax = 1,
+	weight = 1.4,
+	slotSize = { w = 1, h = 2 },
+	category = "weapon",
+	weapon = {
+		kind = "spear",
+		tier = 1,
+		damage = 18,
+		attackCooldown = 0.9,
+		attackRange = 6,
+	},
+	tags = { "weapon", "melee", "tier1", "hospital" },
+	icon = "",
+}
+
 Items.stone_spear = {
 	id = "stone_spear",
 	displayName = "Stone Spear",

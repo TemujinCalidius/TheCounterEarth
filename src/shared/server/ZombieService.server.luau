@@ -19,6 +19,7 @@ local cfg              = GameplayConfig.Zombie or {}
 local ZOMBIE_HEALTH    = cfg.Health or 50
 local WALK_SPEED       = cfg.WalkSpeed or 4
 local RUN_SPEED        = cfg.RunSpeed or 14
+local CRAWL_CHASE_SPEED = cfg.CrawlChaseSpeed or 5
 local DETECTION_RADIUS = cfg.DetectionRadius or 30
 local ATTACK_RANGE     = cfg.AttackRange or 5
 local ATTACK_DAMAGE    = cfg.AttackDamage or 15
@@ -79,6 +80,7 @@ type ZombieData = {
 	-- Zombie-specific
 	hasScreamed: boolean,
 	isCrawling: boolean,
+	permanentCrawler: boolean,  -- zone attr Crawler=true: never stands, no scream, slow chase
 	currentIdleAnim: AnimationTrack?,
 	targetPlayer: Player?,
 	lastAttackTime: number,
@@ -121,11 +123,15 @@ task.defer(function()
 end)
 
 -- ── Terrain helpers ───────────────────────────────────────────────────────
-local function groundSurfaceY(x: number, z: number): number?
+-- refY: cast from just above this height instead of the sky. Required indoors,
+-- otherwise the ray lands on the building's roof instead of the room floor.
+local function groundSurfaceY(x: number, z: number, refY: number?): number?
 	if not zombieRayParams then buildRayParams() end
+	local origin = if refY then Vector3.new(x, refY + 5, z) else Vector3.new(x, 500, z)
+	local depth = if refY then -60 else -1000
 	local rayResult = Workspace:Raycast(
-		Vector3.new(x, 500, z),
-		Vector3.new(0, -1000, 0),
+		origin,
+		Vector3.new(0, depth, 0),
 		zombieRayParams
 	)
 	if rayResult then
@@ -262,7 +268,7 @@ local function createZombieModel(position: Vector3, zombieType: string): Model
 	createSound(root, "Death",  SND_DEATH,   0.8)
 
 	-- Place at ground level — use root's offset from model bottom (not half bounding box)
-	local surfaceY = groundSurfaceY(position.X, position.Z) or position.Y
+	local surfaceY = groundSurfaceY(position.X, position.Z, position.Y) or position.Y
 	local bbCF, modelSize = model:GetBoundingBox()
 	local modelBottomY = bbCF.Position.Y - modelSize.Y / 2
 	local rootOffsetFromBottom = root.Position.Y - modelBottomY
@@ -288,7 +294,7 @@ local function randomInZone(zone: BasePart): Vector3
 	local rx = (math.random() - 0.5) * size.X
 	local rz = (math.random() - 0.5) * size.Z
 	local worldPos = cf:PointToWorldSpace(Vector3.new(rx, 0, rz))
-	local groundY = groundSurfaceY(worldPos.X, worldPos.Z)
+	local groundY = groundSurfaceY(worldPos.X, worldPos.Z, cf.Position.Y)
 	if groundY then
 		return Vector3.new(worldPos.X, groundY, worldPos.Z)
 	end
@@ -323,7 +329,7 @@ local function pickSafeTarget(origin: Vector3, direction: Vector3, dist: number)
 		end
 		local tx = origin.X + dir.X * dist
 		local tz = origin.Z + dir.Z * dist
-		local gy = groundSurfaceY(tx, tz)
+		local gy = groundSurfaceY(tx, tz, origin.Y)
 		if gy then
 			return Vector3.new(tx, gy, tz)
 		end
@@ -374,7 +380,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 				local newX = pos.X + dirX * step
 				local newZ = pos.Z + dirZ * step
 
-				local surfY = groundSurfaceY(newX, newZ)
+				local surfY = groundSurfaceY(newX, newZ, pos.Y)
 				local newY = surfY and (surfY + zombie.halfHeight) or pos.Y
 
 				local newPos = Vector3.new(newX, newY, newZ)
@@ -437,8 +443,8 @@ local function runZombieAI(zombie: ZombieData)
 			zombie.moveTarget = nil
 			zombie.moveSpeed = 0
 
-			-- Pick random idle animation
-			local useCrawl = math.random(1, 3) == 1  -- ~33% chance crawling
+			-- Pick random idle animation (permanent crawlers always crawl)
+			local useCrawl = zombie.permanentCrawler or math.random(1, 3) == 1  -- ~33% chance crawling
 			zombie.isCrawling = useCrawl
 			if useCrawl then
 				zombie.currentIdleAnim = zombie.idleCrawlTrack
@@ -464,9 +470,9 @@ local function runZombieAI(zombie: ZombieData)
 
 			if zombie.state == "dead" or not model.Parent then break end
 
-			-- Transition to wander if no player detected
+			-- Transition to wander if no player detected (crawlers stay put)
 			local d2 = getNearestPlayerInRange(root.Position, DETECTION_RADIUS)
-			if d2 >= math.huge then
+			if d2 >= math.huge and not zombie.permanentCrawler then
 				zombie.state = "wander"
 			end
 
@@ -511,8 +517,8 @@ local function runZombieAI(zombie: ZombieData)
 
 			zombie.targetPlayer = nearPlayer
 
-			-- If crawling, stand up first
-			if zombie.isCrawling then
+			-- If crawling, stand up first (permanent crawlers never stand)
+			if zombie.isCrawling and not zombie.permanentCrawler then
 				zombie.state = "standup"
 				zombie.standupTrack:Play()
 				zombie.standupTrack.Stopped:Wait()
@@ -520,8 +526,8 @@ local function runZombieAI(zombie: ZombieData)
 				if zombie.state == "dead" or not model.Parent then break end
 			end
 
-			-- Scream on first detection
-			if not zombie.hasScreamed then
+			-- Scream on first detection (permanent crawlers can't scream)
+			if not zombie.hasScreamed and not zombie.permanentCrawler then
 				zombie.screamTrack:Play()
 				playSound(root, "Scream")
 				zombie.hasScreamed = true
@@ -535,8 +541,9 @@ local function runZombieAI(zombie: ZombieData)
 
 		-- ── CHASE STATE ──
 		elseif zombie.state == "chase" then
-			zombie.runTrack:Play()
-			zombie.moveSpeed = RUN_SPEED
+			local chaseTrack = zombie.permanentCrawler and zombie.idleCrawlTrack or zombie.runTrack
+			chaseTrack:Play()
+			zombie.moveSpeed = zombie.permanentCrawler and CRAWL_CHASE_SPEED or RUN_SPEED
 
 			while zombie.state == "chase" and model.Parent do
 				local target2 = zombie.targetPlayer
@@ -568,6 +575,7 @@ local function runZombieAI(zombie: ZombieData)
 					zombie.state = "attack"
 					zombie.moveTarget = nil
 					zombie.runTrack:Stop()
+					zombie.idleCrawlTrack:Stop()
 
 					zombie.attackTrack:Play()
 					playSound(root, "Attack")
@@ -603,12 +611,12 @@ local function runZombieAI(zombie: ZombieData)
 				else
 					-- Move toward player
 					zombie.moveTarget = targetRoot.Position
-					print("[ZombieService] Chase:", "dist=" .. math.floor(dist), "leash=" .. math.floor(distFromSpawn), "state=" .. zombie.state)
 					task.wait(0.2)
 				end
 			end
 
 			zombie.runTrack:Stop()
+			zombie.idleCrawlTrack:Stop()
 			zombie.moveTarget = nil
 
 		else
@@ -674,7 +682,11 @@ local function onZombieDied(zombie: ZombieData)
 		end)
 	end)
 
-	-- Respawn
+	-- Respawn (zones with NoRespawn=true spawn each zombie exactly once,
+	-- e.g. The Ward tutorial)
+	if zombie.zone:GetAttribute("NoRespawn") == true then
+		return
+	end
 	local respawnTime = math.random(RESPAWN_SECONDS[1], RESPAWN_SECONDS[2])
 	task.delay(respawnTime, function()
 		if zombie.zone.Parent then
@@ -726,6 +738,7 @@ function spawnZombieInZone(zone: BasePart, zombieType: string)
 		-- Zombie-specific
 		hasScreamed = false,
 		isCrawling = false,
+		permanentCrawler = zone:GetAttribute("Crawler") == true,
 		currentIdleAnim = nil,
 		targetPlayer = nil,
 		lastAttackTime = 0,
